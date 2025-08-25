@@ -1,0 +1,6 @@
+@WebApplicationScheveCMS_HostAddress = http://localhost:5225
+
+GET {{WebApplicationScheveCMS_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
