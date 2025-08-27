@@ -1,8 +1,13 @@
+// Existing code
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-
 builder.Services.AddControllers();
+
+// This line registers your database settings
+builder.Services.Configure<WebApplicationScheveCMS.Models.StudentDatabaseSettings>(
+    builder.Configuration.GetSection("StudentDatabaseSettings"));
+
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
