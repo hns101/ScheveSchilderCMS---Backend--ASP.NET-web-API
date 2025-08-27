@@ -8,6 +8,10 @@ builder.Services.AddControllers();
 builder.Services.Configure<WebApplicationScheveCMS.Models.StudentDatabaseSettings>(
     builder.Configuration.GetSection("StudentDatabaseSettings"));
 
+// Register your services here as Singletons
+builder.Services.AddSingleton<WebApplicationScheveCMS.Services.StudentService>();
+builder.Services.AddSingleton<WebApplicationScheveCMS.Services.InvoiceService>();    
+
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
