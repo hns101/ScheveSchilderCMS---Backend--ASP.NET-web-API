@@ -12,6 +12,11 @@ builder.Services.Configure<WebApplicationScheveCMS.Models.StudentDatabaseSetting
 builder.Services.AddSingleton<WebApplicationScheveCMS.Services.StudentService>();
 builder.Services.AddSingleton<WebApplicationScheveCMS.Services.InvoiceService>();    
 
+// Register the new services for file and PDF handling
+builder.Services.AddSingleton<WebApplicationScheveCMS.Services.FileService>();
+builder.Services.AddSingleton<WebApplicationScheveCMS.Services.PdfService>();
+
+
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
