@@ -19,12 +19,12 @@ namespace WebApplicationScheveCMS.Controllers
         // GET: api/invoices
         // This will be expanded later to include filtering
         [HttpGet]
-        public async Task<ActionResult<List<Invoice>>> Get() =>
+        public async Task<ActionResult<List<Services.Invoice>>> Get() =>
             await _invoiceService.GetAsync();
 
         // GET: api/invoices/{id}
         [HttpGet("{id}")]
-        public async Task<ActionResult<Invoice>> Get(string id)
+        public async Task<ActionResult<Services.Invoice>> Get(string id)
         {
             var invoice = await _invoiceService.GetAsync(id);
 

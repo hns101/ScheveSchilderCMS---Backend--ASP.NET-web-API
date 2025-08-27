@@ -20,21 +20,19 @@ namespace WebApplicationScheveCMS.Controllers
         // GET: api/students
         [HttpGet]
         public async Task<ActionResult<List<Student>>> Get() =>
-            await _studentService.GetAsync();
+            await _studentService.GetAllAsync();
 
         // GET: api/students/{id}
+        // This endpoint is updated to use the new service method
         [HttpGet("{id}")]
         public async Task<ActionResult<Student>> Get(string id)
         {
-            var student = await _studentService.GetAsync(id);
+            var student = await _studentService.GetStudentWithInvoicesAsync(id);
 
             if (student is null)
             {
                 return NotFound();
             }
-
-            // You can add logic here to get the student's invoices as well
-            // student.Invoices = await _invoiceService.GetInvoicesByStudentIdAsync(id);
 
             return student;
         }
