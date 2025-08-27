@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "dgSpecHash": "qvxRkKnlY3E=",
+  "dgSpecHash": "jWAXJ/xzPT8=",
   "success": true,
   "projectFilePath": "C:\\Users\\HNS10\\Desktop\\Dev Projects\\scheveSchilderCMS\\backend - ASP.NET Core Web API  - scheveSchilderCMS\\WebApplicationScheveCMS\\WebApplicationScheveCMS.csproj",
   "expectedPackageFiles": [
@@ -12,6 +12,7 @@
     "C:\\Users\\HNS10\\.nuget\\packages\\microsoft.win32.registry\\5.0.0\\microsoft.win32.registry.5.0.0.nupkg.sha512",
     "C:\\Users\\HNS10\\.nuget\\packages\\mongodb.bson\\3.4.3\\mongodb.bson.3.4.3.nupkg.sha512",
     "C:\\Users\\HNS10\\.nuget\\packages\\mongodb.driver\\3.4.3\\mongodb.driver.3.4.3.nupkg.sha512",
+    "C:\\Users\\HNS10\\.nuget\\packages\\questpdf\\2025.7.0\\questpdf.2025.7.0.nupkg.sha512",
     "C:\\Users\\HNS10\\.nuget\\packages\\sharpcompress\\0.30.1\\sharpcompress.0.30.1.nupkg.sha512",
     "C:\\Users\\HNS10\\.nuget\\packages\\snappier\\1.0.0\\snappier.1.0.0.nupkg.sha512",
     "C:\\Users\\HNS10\\.nuget\\packages\\system.buffers\\4.5.1\\system.buffers.4.5.1.nupkg.sha512",

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using WebApplicationScheveCMS.Models;
 using WebApplicationScheveCMS.Services;
+using System.Collections.Generic;
 using System.IO;
 
 namespace WebApplicationScheveCMS.Controllers
@@ -10,21 +11,31 @@ namespace WebApplicationScheveCMS.Controllers
     public class InvoicesController : ControllerBase
     {
         private readonly InvoiceService _invoiceService;
+        private readonly StudentService _studentService;
+        private readonly PdfService _pdfService;
+        private readonly FileService _fileService;
 
-        public InvoicesController(InvoiceService invoiceService)
+        public InvoicesController(
+            InvoiceService invoiceService, 
+            StudentService studentService, 
+            PdfService pdfService, 
+            FileService fileService)
         {
             _invoiceService = invoiceService;
+            _studentService = studentService;
+            _pdfService = pdfService;
+            _fileService = fileService;
         }
 
         // GET: api/invoices
         // This will be expanded later to include filtering
         [HttpGet]
-        public async Task<ActionResult<List<Services.Invoice>>> Get() =>
+        public async Task<ActionResult<List<Invoice>>> Get() =>
             await _invoiceService.GetAsync();
 
         // GET: api/invoices/{id}
         [HttpGet("{id}")]
-        public async Task<ActionResult<Services.Invoice>> Get(string id)
+        public async Task<ActionResult<Invoice>> Get(string id)
         {
             var invoice = await _invoiceService.GetAsync(id);
 
@@ -47,7 +58,11 @@ namespace WebApplicationScheveCMS.Controllers
                 return NotFound();
             }
 
-            // TODO: Add logic here to delete the associated PDF file from the server's file system
+            // Delete the associated PDF file
+            if (!string.IsNullOrEmpty(invoice.InvoicePdfPath))
+            {
+                _fileService.DeleteFile(invoice.InvoicePdfPath);
+            }
 
             await _invoiceService.RemoveAsync(id);
 
@@ -55,21 +70,69 @@ namespace WebApplicationScheveCMS.Controllers
         }
 
         // GET: api/invoices/file/{id}
-        // This will be implemented later
         [HttpGet("file/{id}")]
-        public IActionResult GetFile(string id)
+        public async Task<IActionResult> GetFile(string id)
         {
-            // TODO: Add logic here to find the file path and return the PDF file
+            var invoice = await _invoiceService.GetAsync(id);
+            if (invoice == null || string.IsNullOrEmpty(invoice.InvoicePdfPath))
+            {
+                return NotFound();
+            }
+
+            var filePath = Path.Combine(Directory.GetCurrentDirectory(), "Invoices", Path.GetFileName(invoice.InvoicePdfPath));
+            
+            if (System.IO.File.Exists(filePath))
+            {
+                var fileBytes = await System.IO.File.ReadAllBytesAsync(filePath);
+                return File(fileBytes, "application/pdf", Path.GetFileName(filePath));
+            }
+
             return NotFound();
         }
 
         // POST: api/invoices/batch-generate
-        // This will be implemented later
         [HttpPost("batch-generate")]
         public async Task<IActionResult> BatchGenerate(BatchInvoiceRequest request)
         {
-            // TODO: Add the batch generation logic here
-            return Ok();
+            if (request.StudentIds == null || !request.StudentIds.Any())
+            {
+                return BadRequest("No student IDs provided for batch generation.");
+            }
+
+            var generatedInvoices = new List<Invoice>();
+
+            foreach (var studentId in request.StudentIds)
+            {
+                var student = await _studentService.GetAsync(studentId);
+
+                if (student is null)
+                {
+                    // Optionally log or handle a student not found case
+                    continue; 
+                }
+
+                var newInvoice = new Invoice
+                {
+                    StudentId = student.Id!,
+                    Date = DateTime.Now,
+                    AmountTotal = request.AmountTotal,
+                    VAT = request.VAT,
+                    Description = request.Description
+                };
+                
+                // Generate the PDF
+                var pdfBytes = _pdfService.GenerateInvoicePdf(student, newInvoice);
+                var fileName = $"Factuur_{newInvoice.Id}.pdf";
+
+                // Save the PDF and get the file path
+                newInvoice.InvoicePdfPath = _fileService.SaveInvoicePdf(fileName, pdfBytes);
+
+                // Save the invoice to the database
+                await _invoiceService.CreateAsync(newInvoice);
+                generatedInvoices.Add(newInvoice);
+            }
+
+            return Ok(generatedInvoices);
         }
     }
 
