@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("WebApplicationScheveCMS")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+370680ff780ae6c5943674afce8648b9e027e180")]
 [assembly: System.Reflection.AssemblyProductAttribute("WebApplicationScheveCMS")]
 [assembly: System.Reflection.AssemblyTitleAttribute("WebApplicationScheveCMS")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
