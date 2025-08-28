@@ -1,9 +1,21 @@
 using WebApplicationScheveCMS.Models;
 using WebApplicationScheveCMS.Services;
-using Microsoft.Extensions.Logging; // Add this using statement
-using System.Text.Json; // Add this for JsonNamingPolicy
+using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Add CORS services
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowFrontend",
+        builder =>
+        {
+            builder.WithOrigins("http://localhost") // Allow requests from your frontend's origin (Nginx)
+                   .AllowAnyHeader()
+                   .AllowAnyMethod();
+        });
+});
 
 // Add services to the container.
 builder.Services.AddControllers()
@@ -37,7 +49,9 @@ else
     app.UseHsts();
 }
 
-// Removed app.UseHttpsRedirection() to prevent HTTPS binding issues in Docker.
+// Use CORS middleware
+app.UseCors("AllowFrontend");
+
 app.UseAuthorization();
 
 app.MapControllers();
