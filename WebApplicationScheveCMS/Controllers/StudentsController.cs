@@ -47,18 +47,13 @@ namespace WebApplicationScheveCMS.Controllers
 
                 if (student is null)
                 {
-                    _logger.LogWarning($"Student with ID '{id}' not found.");
-                    return NotFound();
+                    _logger.LogWarning($"Student with ID '{id}' not found or invalid format.");
+                    return NotFound(); // Return NotFound if service returns null
                 }
 
                 return student;
             }
-            catch (FormatException ex)
-            {
-                _logger.LogError(ex, $"Invalid student ID format: '{id}'.");
-                return BadRequest($"Invalid student ID format: {id}");
-            }
-            catch (Exception ex)
+            catch (Exception ex) // Catch all other exceptions
             {
                 _logger.LogError(ex, $"Error getting student with ID: {id}.");
                 return StatusCode(500, $"Internal server error when fetching student ID {id}.");

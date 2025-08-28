@@ -49,7 +49,7 @@ namespace WebApplicationScheveCMS.Services
                 if (string.IsNullOrEmpty(id) || id.Length != 24 || !ObjectId.TryParse(id, out ObjectId objectId))
                 {
                     _logger.LogWarning($"Attempted to get student with invalid ObjectId format: '{id}'. ObjectId.TryParse failed.");
-                    throw new FormatException($"Invalid ObjectId format for ID: '{id}'");
+                    return null;
                 }
 
                 var pipeline = new BsonDocument[]
@@ -63,6 +63,7 @@ namespace WebApplicationScheveCMS.Services
                             { "foreignField", "StudentId" },
                             { "as", "Invoices" }
                         }),
+                    // Group back to a single student document, ensuring all fields are PascalCase
                     new BsonDocument("$group", new BsonDocument
                     {
                         { "_id", "$_id" },
@@ -76,11 +77,13 @@ namespace WebApplicationScheveCMS.Services
                         { "AccountNumber", new BsonDocument("$first", "$AccountNumber") },
                         { "DateOfRegistration", new BsonDocument("$first", "$DateOfRegistration") },
                         { "RegistrationDocumentPath", new BsonDocument("$first", "$RegistrationDocumentPath") },
-                        { "Invoices", new BsonDocument("$first", "$Invoices") }
+                        { "Invoices", new BsonDocument("$first", "$Invoices") } // Keep the entire invoices array from lookup
                     }),
+                    // Project stage to sort invoices within the array and ensure consistent casing
+                    // REMOVED explicit projection of "Id": "$_id" here.
                     new BsonDocument("$project", new BsonDocument
                     {
-                        { "_id", "$_id" },
+                        // "Id" is now implicitly mapped from "_id" by BsonClassMap
                         { "Name", "$Name" },
                         { "StudentNumber", "$StudentNumber" },
                         { "Address", "$Address" },
@@ -94,7 +97,7 @@ namespace WebApplicationScheveCMS.Services
                         { "Invoices", new BsonDocument("$sortArray", new BsonDocument
                             {
                                 { "input", "$Invoices" },
-                                { "sortBy", new BsonDocument("Date", -1) }
+                                { "sortBy", new BsonDocument("Date", -1) } // Sort by invoice Date descending (PascalCase)
                             })
                         }
                     })
@@ -113,7 +116,6 @@ namespace WebApplicationScheveCMS.Services
             }
         }
 
-        // NEW: Method to get a student with invoices by StudentNumber
         public async Task<Student?> GetStudentWithInvoicesByNumberAsync(string studentNumber)
         {
             try
@@ -146,9 +148,11 @@ namespace WebApplicationScheveCMS.Services
                         { "RegistrationDocumentPath", new BsonDocument("$first", "$RegistrationDocumentPath") },
                         { "Invoices", new BsonDocument("$first", "$Invoices") }
                     }),
+                    // Project stage to sort invoices within the array and ensure consistent casing
+                    // REMOVED explicit projection of "Id": "$_id" here.
                     new BsonDocument("$project", new BsonDocument
                     {
-                        { "_id", "$_id" },
+                        // "Id" is now implicitly mapped from "_id" by BsonClassMap
                         { "Name", "$Name" },
                         { "StudentNumber", "$StudentNumber" },
                         { "Address", "$Address" },

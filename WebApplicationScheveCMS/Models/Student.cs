@@ -8,12 +8,11 @@ namespace WebApplicationScheveCMS.Models
     {
         [BsonId]
         [BsonRepresentation(BsonType.ObjectId)]
-        // BsonIgnoreIfDefault ensures Id is not sent if null, letting MongoDB generate it
         [BsonIgnoreIfDefault] 
         public string? Id { get; set; }
 
-        public string Name { get; set; } = null!; // Non-nullable, enforce data
-        public string StudentNumber { get; set; } = null!; // Non-nullable, enforce data
+        public string Name { get; set; } = null!;
+        public string StudentNumber { get; set; } = null!;
         public string Address { get; set; } = null!;
         public string Email { get; set; } = null!;
         public string PhoneNumber { get; set; } = null!;
@@ -24,9 +23,8 @@ namespace WebApplicationScheveCMS.Models
         
         public string? RegistrationDocumentPath { get; set; }
 
-        // Property to hold the student's invoices after the lookup
-        // This will not be stored in the Students collection itself, but populated by queries
-        [BsonIgnore] // Ignore this property when serializing/deserializing to/from MongoDB
+        // Explicitly map the 'Invoices' field from the aggregation pipeline
+        [BsonElement("Invoices")] 
         public List<Invoice>? Invoices { get; set; }
     }
 }

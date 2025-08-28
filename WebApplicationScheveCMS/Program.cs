@@ -2,12 +2,20 @@ using WebApplicationScheveCMS.Models;
 using WebApplicationScheveCMS.Services;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
-using MongoDB.Bson.Serialization; // Add this using statement
-using MongoDB.Bson.Serialization.IdGenerators; // Add this using statement
+using MongoDB.Bson.Serialization;
+using MongoDB.Bson.Serialization.IdGenerators;
 using MongoDB.Bson.Serialization.Serializers;
-using MongoDB.Bson; // Add this using statement
+using MongoDB.Bson.Serialization.Conventions;
+using MongoDB.Bson; // Keep for now, but the convention registration is removed
 
 var builder = WebApplication.CreateBuilder(args);
+
+// --- IMPORTANT: Removed CamelCaseElementNameConvention registration ---
+// The CamelCaseElementNameConvention is causing a conflict.
+// We will rely on direct PascalCase mapping between BSON and C# models.
+// var conventionPack = new ConventionPack { new CamelCaseElementNameConvention() };
+// ConventionRegistry.Register("CamelCaseConvention", conventionPack, t => true);
+// --- End Removed Convention Registration ---
 
 // Add CORS services
 builder.Services.AddCors(options =>
@@ -23,7 +31,7 @@ builder.Services.AddCors(options =>
 
 // Add services to the container.
 builder.Services.AddControllers()
-    .AddJsonOptions(options => // Configure JSON serialization to camelCase
+    .AddJsonOptions(options => // Configure JSON serialization to camelCase for API output
     {
         options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
     });
@@ -41,28 +49,28 @@ builder.Services.AddSingleton<PdfService>();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
-var app = builder.Build();
-
 // --- BSON Class Map Registration ---
 // This ensures MongoDB driver correctly maps string IDs to ObjectId
 BsonClassMap.RegisterClassMap<Student>(cm =>
 {
-    cm.AutoMap();
+    cm.AutoMap(); // AutoMap will now use default PascalCase mapping
     cm.MapIdProperty(c => c.Id)
       .SetIdGenerator(StringObjectIdGenerator.Instance)
       .SetSerializer(new StringSerializer(BsonType.ObjectId));
 });
 BsonClassMap.RegisterClassMap<Invoice>(cm =>
 {
-    cm.AutoMap();
+    cm.AutoMap(); // AutoMap will now use default PascalCase mapping
     cm.MapIdProperty(c => c.Id)
       .SetIdGenerator(StringObjectIdGenerator.Instance)
       .SetSerializer(new StringSerializer(BsonType.ObjectId));
-    cm.MapProperty(c => c.StudentId) // Explicitly map StudentId as ObjectId string
+    cm.MapProperty(c => c.StudentId)
       .SetSerializer(new StringSerializer(BsonType.ObjectId));
 });
 // --- End BSON Class Map Registration ---
 
+
+var app = builder.Build();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
