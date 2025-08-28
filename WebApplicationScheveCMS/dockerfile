@@ -1,0 +1,34 @@
+# Stage 1: Build the ASP.NET Core application
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build-stage
+
+# Set the working directory inside the container to the project folder
+# This means /src/WebApplicationScheveCMS will be the root for subsequent commands
+WORKDIR /src/WebApplicationScheveCMS
+
+# Copy the .csproj file directly into the current working directory (which is /src/WebApplicationScheveCMS)
+COPY ["WebApplicationScheveCMS.csproj", "./"]
+
+# Restore dependencies for the project
+# Now it correctly references the .csproj in the current directory
+RUN dotnet restore "WebApplicationScheveCMS.csproj"
+
+# Copy the rest of the application code from the build context root (which is WebApplicationScheveCMS)
+# to the current working directory in the container (/src/WebApplicationScheveCMS)
+COPY . .
+
+# Build the application
+RUN dotnet build "WebApplicationScheveCMS.csproj" -c Release -o /app/build
+
+# Stage 2: Publish the application
+FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS publish-stage
+WORKDIR /app
+COPY --from=build-stage /app/build .
+
+# Expose the HTTP port your ASP.NET Core app listens on (5000)
+# Removed EXPOSE 7123 to avoid HTTPS issues in the container
+EXPOSE 5000
+
+# Explicitly set ASPNETCORE_URLS to only use HTTP
+ENV ASPNETCORE_URLS=http://+:5000
+
+ENTRYPOINT ["dotnet", "WebApplicationScheveCMS.dll"]
