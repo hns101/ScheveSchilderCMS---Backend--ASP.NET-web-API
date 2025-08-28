@@ -2,6 +2,9 @@ using WebApplicationScheveCMS.Models;
 using WebApplicationScheveCMS.Services;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
+using MongoDB.Bson.Serialization; // Add this using statement
+using MongoDB.Bson.Serialization.IdGenerators; // Add this using statement
+using MongoDB.Bson.Serialization.Serializers; // Add this using statement
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -29,7 +32,6 @@ builder.Services.Configure<StudentDatabaseSettings>(
     builder.Configuration.GetSection("StudentDatabaseSettings"));
 
 // Register your services here as Singletons
-// Ensure ILogger is available for injection into services
 builder.Services.AddSingleton<StudentService>();
 builder.Services.AddSingleton<InvoiceService>();
 builder.Services.AddSingleton<FileService>();
@@ -39,6 +41,27 @@ builder.Services.AddSingleton<PdfService>();
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
+
+// --- BSON Class Map Registration ---
+// This ensures MongoDB driver correctly maps string IDs to ObjectId
+BsonClassMap.RegisterClassMap<Student>(cm =>
+{
+    cm.AutoMap();
+    cm.MapIdProperty(c => c.Id)
+      .SetIdGenerator(StringObjectIdGenerator.Instance)
+      .SetSerializer(new StringSerializer(BsonType.ObjectId));
+});
+BsonClassMap.RegisterClassMap<Invoice>(cm =>
+{
+    cm.AutoMap();
+    cm.MapIdProperty(c => c.Id)
+      .SetIdGenerator(StringObjectIdGenerator.Instance)
+      .SetSerializer(new StringSerializer(BsonType.ObjectId));
+    cm.MapProperty(c => c.StudentId) // Explicitly map StudentId as ObjectId string
+      .SetSerializer(new StringSerializer(BsonType.ObjectId));
+});
+// --- End BSON Class Map Registration ---
+
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -50,7 +73,6 @@ else
     app.UseHsts();
 }
 
-// Use CORS middleware
 app.UseCors("AllowFrontend");
 
 app.UseAuthorization();
