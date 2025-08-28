@@ -11,7 +11,7 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowFrontend",
         builder =>
         {
-            builder.WithOrigins("http://localhost") // Allow requests from your frontend's origin (Nginx)
+            builder.WithOrigins("http://localhost")
                    .AllowAnyHeader()
                    .AllowAnyMethod();
         });
@@ -29,6 +29,7 @@ builder.Services.Configure<StudentDatabaseSettings>(
     builder.Configuration.GetSection("StudentDatabaseSettings"));
 
 // Register your services here as Singletons
+// Ensure ILogger is available for injection into services
 builder.Services.AddSingleton<StudentService>();
 builder.Services.AddSingleton<InvoiceService>();
 builder.Services.AddSingleton<FileService>();

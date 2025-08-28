@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using MongoDB.Driver;
-using WebApplicationScheveCMS.Models; // Use the single Student model
+using WebApplicationScheveCMS.Models;
+using Microsoft.Extensions.Logging; // Add this using statement
+using System; // Add this using statement
 
 namespace WebApplicationScheveCMS.Services
 {
@@ -9,9 +11,11 @@ namespace WebApplicationScheveCMS.Services
     {
         private readonly IMongoCollection<Student> _studentsCollection;
         private readonly IMongoCollection<Invoice> _invoicesCollection;
+        private readonly ILogger<StudentService> _logger; // Inject ILogger
 
         public StudentService(
-            IOptions<StudentDatabaseSettings> studentDatabaseSettings)
+            IOptions<StudentDatabaseSettings> studentDatabaseSettings,
+            ILogger<StudentService> logger) // Add ILogger to constructor
         {
             var mongoClient = new MongoClient(
                 studentDatabaseSettings.Value.ConnectionString);
@@ -23,6 +27,7 @@ namespace WebApplicationScheveCMS.Services
                 studentDatabaseSettings.Value.StudentsCollectionName);
             _invoicesCollection = mongoDatabase.GetCollection<Invoice>(
                 studentDatabaseSettings.Value.InvoicesCollectionName);
+            _logger = logger; // Assign logger
         }
 
         public async Task<List<Student>> GetAllAsync() =>
@@ -31,67 +36,79 @@ namespace WebApplicationScheveCMS.Services
         public async Task<Student?> GetAsync(string id) =>
             await _studentsCollection.Find(x => x.Id == id).FirstOrDefaultAsync();
 
-        // New method to get a student by StudentNumber (for duplicate check)
         public async Task<Student?> GetByStudentNumberAsync(string studentNumber) =>
             await _studentsCollection.Find(x => x.StudentNumber == studentNumber).FirstOrDefaultAsync();
 
-
         public async Task<Student?> GetStudentWithInvoicesAsync(string id)
         {
-            var pipeline = new BsonDocument[]
+            try
             {
-                new BsonDocument("$match", new BsonDocument("_id", new ObjectId(id))),
-                new BsonDocument("$lookup",
-                    new BsonDocument
-                    {
-                        { "from", _invoicesCollection.CollectionNamespace.CollectionName },
-                        { "localField", "_id" },
-                        { "foreignField", "StudentId" },
-                        { "as", "Invoices" }
-                    }),
-                // Unwind and sort, but preserve students without invoices
-                new BsonDocument("$unwind", new BsonDocument
+                // Ensure the ID is a valid ObjectId before proceeding
+                if (!ObjectId.TryParse(id, out ObjectId objectId))
                 {
-                    { "path", "$Invoices" },
-                    { "preserveNullAndEmptyArrays", true }
-                }),
-                new BsonDocument("$sort", new BsonDocument("Invoices.Date", -1)),
-                new BsonDocument("$group", new BsonDocument
+                    _logger.LogWarning($"Attempted to get student with invalid ObjectId format: '{id}'");
+                    return null; // Or throw a specific exception
+                }
+
+                var pipeline = new BsonDocument[]
+                {
+                    new BsonDocument("$match", new BsonDocument("_id", objectId)), // Use the parsed ObjectId
+                    new BsonDocument("$lookup",
+                        new BsonDocument
+                        {
+                            { "from", _invoicesCollection.CollectionNamespace.CollectionName },
+                            { "localField", "_id" },
+                            { "foreignField", "StudentId" },
+                            { "as", "Invoices" }
+                        }),
+                    // Unwind and sort, but preserve students without invoices
+                    new BsonDocument("$unwind", new BsonDocument
                     {
-                        { "_id", "$_id" },
-                        { "Name", new BsonDocument("$first", "$Name") },
-                        { "StudentNumber", new BsonDocument("$first", "$StudentNumber") },
-                        { "Address", new BsonDocument("$first", "$Address") },
-                        { "Email", new BsonDocument("$first", "$Email") },
-                        { "PhoneNumber", new BsonDocument("$first", "$PhoneNumber") },
-                        { "EmergencyContact", new BsonDocument("$first", "$EmergencyContact") },
-                        { "BankName", new BsonDocument("$first", "$BankName") },
-                        { "AccountNumber", new BsonDocument("$first", "$AccountNumber") },
-                        { "DateOfRegistration", new BsonDocument("$first", "$DateOfRegistration") },
-                        { "RegistrationDocumentPath", new BsonDocument("$first", "$RegistrationDocumentPath") },
-                        { "Invoices", new BsonDocument("$push", new BsonDocument
-                            {
-                                { "id", "$Invoices._id" }, // MongoDB _id maps to 'id'
-                                { "date", "$Invoices.Date" },
-                                { "amountTotal", "$Invoices.AmountTotal" },
-                                { "vat", "$Invoices.VAT" },
-                                { "description", "$Invoices.Description" },
-                                { "invoicePdfPath", "$Invoices.InvoicePdfPath" }
-                            })
-                        }
-                    })
-            };
+                        { "path", "$Invoices" },
+                        { "preserveNullAndEmptyArrays", true }
+                    }),
+                    new BsonDocument("$sort", new BsonDocument("Invoices.Date", -1)),
+                    new BsonDocument("$group", new BsonDocument
+                        {
+                            { "_id", "$_id" },
+                            { "Name", new BsonDocument("$first", "$Name") },
+                            { "StudentNumber", new BsonDocument("$first", "$StudentNumber") },
+                            { "Address", new BsonDocument("$first", "$Address") },
+                            { "Email", new BsonDocument("$first", "$Email") },
+                            { "PhoneNumber", new BsonDocument("$first", "$PhoneNumber") },
+                            { "EmergencyContact", new BsonDocument("$first", "$EmergencyContact") },
+                            { "BankName", new BsonDocument("$first", "$BankName") },
+                            { "AccountNumber", new BsonDocument("$first", "$AccountNumber") },
+                            { "DateOfRegistration", new BsonDocument("$first", "$DateOfRegistration") },
+                            { "RegistrationDocumentPath", new BsonDocument("$first", "$RegistrationDocumentPath") },
+                            { "Invoices", new BsonDocument("$push", new BsonDocument
+                                {
+                                    { "id", "$Invoices._id" }, // MongoDB _id maps to 'id'
+                                    { "date", "$Invoices.Date" },
+                                    { "amountTotal", "$Invoices.AmountTotal" },
+                                    { "vat", "$Invoices.VAT" },
+                                    { "description", "$Invoices.Description" },
+                                    { "invoicePdfPath", "$Invoices.InvoicePdfPath" }
+                                })
+                            }
+                        })
+                };
 
-            var studentWithInvoices = await _studentsCollection
-                .Aggregate<Student>(pipeline)
-                .FirstOrDefaultAsync();
+                var studentWithInvoices = await _studentsCollection
+                    .Aggregate<Student>(pipeline)
+                    .FirstOrDefaultAsync();
 
-            return studentWithInvoices;
+                return studentWithInvoices;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error in GetStudentWithInvoicesAsync for ID: {id}.");
+                throw; // Re-throw to be caught by the controller's try-catch
+            }
         }
 
         public async Task CreateAsync(Student newStudent)
         {
-            // Check for duplicate StudentNumber before creating
             var existingStudent = await _studentsCollection.Find(s => s.StudentNumber == newStudent.StudentNumber).FirstOrDefaultAsync();
             if (existingStudent != null)
             {
