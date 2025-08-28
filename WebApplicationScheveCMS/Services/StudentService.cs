@@ -4,7 +4,7 @@ using MongoDB.Driver;
 using WebApplicationScheveCMS.Models;
 using Microsoft.Extensions.Logging;
 using System;
-using System.Collections.Generic; // Added for List<Invoice>
+using System.Collections.Generic;
 
 namespace WebApplicationScheveCMS.Services
 {
@@ -44,11 +44,13 @@ namespace WebApplicationScheveCMS.Services
         {
             try
             {
+                // Log the ID received to see its exact value
+                _logger.LogInformation($"GetStudentWithInvoicesAsync received ID: '{id}' (Length: {id?.Length ?? 0})");
+
                 // Add a basic length check before attempting to parse
                 if (string.IsNullOrEmpty(id) || id.Length != 24 || !ObjectId.TryParse(id, out ObjectId objectId))
                 {
-                    _logger.LogWarning($"Attempted to get student with invalid ObjectId format: '{id}'");
-                    // Throw a FormatException here to be caught by the controller and return BadRequest
+                    _logger.LogWarning($"Attempted to get student with invalid ObjectId format: '{id}'. ObjectId.TryParse failed.");
                     throw new FormatException($"Invalid ObjectId format for ID: '{id}'");
                 }
 
@@ -63,38 +65,42 @@ namespace WebApplicationScheveCMS.Services
                             { "foreignField", "StudentId" },
                             { "as", "Invoices" }
                         }),
+                    // Group back to a single student document, preserving all original fields
+                    // and ensuring invoices are a proper array.
+                    // IMPORTANT: Project field names in PascalCase to match C# Student model
                     new BsonDocument("$group", new BsonDocument
                     {
                         { "_id", "$_id" },
-                        { "name", new BsonDocument("$first", "$Name") },
-                        { "studentNumber", new BsonDocument("$first", "$StudentNumber") },
-                        { "address", new BsonDocument("$first", "$Address") },
-                        { "email", new BsonDocument("$first", "$Email") },
-                        { "phoneNumber", new BsonDocument("$first", "$PhoneNumber") },
-                        { "emergencyContact", new BsonDocument("$first", "$EmergencyContact") },
-                        { "bankName", new BsonDocument("$first", "$BankName") },
-                        { "accountNumber", new BsonDocument("$first", "$AccountNumber") },
-                        { "dateOfRegistration", new BsonDocument("$first", "$DateOfRegistration") },
-                        { "registrationDocumentPath", new BsonDocument("$first", "$RegistrationDocumentPath") },
-                        { "invoices", new BsonDocument("$first", "$Invoices") }
+                        { "Name", new BsonDocument("$first", "$Name") },
+                        { "StudentNumber", new BsonDocument("$first", "$StudentNumber") },
+                        { "Address", new BsonDocument("$first", "$Address") },
+                        { "Email", new BsonDocument("$first", "$Email") },
+                        { "PhoneNumber", new BsonDocument("$first", "$PhoneNumber") },
+                        { "EmergencyContact", new BsonDocument("$first", "$EmergencyContact") },
+                        { "BankName", new BsonDocument("$first", "$BankName") },
+                        { "AccountNumber", new BsonDocument("$first", "$AccountNumber") },
+                        { "DateOfRegistration", new BsonDocument("$first", "$DateOfRegistration") },
+                        { "RegistrationDocumentPath", new BsonDocument("$first", "$RegistrationDocumentPath") },
+                        { "Invoices", new BsonDocument("$first", "$Invoices") } // Keep the entire invoices array from lookup
                     }),
+                    // Project stage to sort invoices within the array and ensure consistent casing
                     new BsonDocument("$project", new BsonDocument
                     {
                         { "_id", "$_id" },
-                        { "name", "$name" },
-                        { "studentNumber", "$studentNumber" },
-                        { "address", "$address" },
-                        { "email", "$email" },
-                        { "phoneNumber", "$phoneNumber" },
-                        { "emergencyContact", "$emergencyContact" },
-                        { "bankName", "$bankName" },
-                        { "accountNumber", "$accountNumber" },
-                        { "dateOfRegistration", "$dateOfRegistration" },
-                        { "registrationDocumentPath", "$registrationDocumentPath" },
-                        { "invoices", new BsonDocument("$sortArray", new BsonDocument
+                        { "Name", "$Name" },
+                        { "StudentNumber", "$StudentNumber" },
+                        { "Address", "$Address" },
+                        { "Email", "$Email" },
+                        { "PhoneNumber", "$PhoneNumber" },
+                        { "EmergencyContact", "$EmergencyContact" },
+                        { "BankName", "$BankName" },
+                        { "AccountNumber", "$AccountNumber" },
+                        { "DateOfRegistration", "$DateOfRegistration" },
+                        { "RegistrationDocumentPath", "$RegistrationDocumentPath" },
+                        { "Invoices", new BsonDocument("$sortArray", new BsonDocument
                             {
-                                { "input", "$invoices" },
-                                { "sortBy", new BsonDocument("date", -1) }
+                                { "input", "$Invoices" },
+                                { "sortBy", new BsonDocument("Date", -1) } // Sort by invoice Date descending (PascalCase)
                             })
                         }
                     })
@@ -108,7 +114,7 @@ namespace WebApplicationScheveCMS.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error in GetStudentWithInvoicesAsync for ID: {id}.");
+                _logger.LogError(ex, $"Error in GetStudentWithInvoicesAsync for ID: '{id}'.");
                 throw;
             }
         }
