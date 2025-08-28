@@ -1,10 +1,16 @@
 using WebApplicationScheveCMS.Models;
 using WebApplicationScheveCMS.Services;
+using Microsoft.Extensions.Logging; // Add this using statement
+using System.Text.Json; // Add this for JsonNamingPolicy
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options => // Configure JSON serialization to camelCase
+    {
+        options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+    });
 
 // This line registers your database settings
 builder.Services.Configure<StudentDatabaseSettings>(
@@ -28,15 +34,10 @@ if (app.Environment.IsDevelopment())
 }
 else
 {
-    // In non-development environments (like Docker), we explicitly disable HTTPS redirection
-    // and HSTS to avoid certificate issues. Nginx will handle HTTPS for the frontend.
-    app.UseHsts(); // Use HSTS in production, but ensure it's not redirecting to an unconfigured HTTPS port
+    app.UseHsts();
 }
 
 // Removed app.UseHttpsRedirection() to prevent HTTPS binding issues in Docker.
-// Nginx in the frontend container will handle HTTPS for external access.
-// app.UseHttpsRedirection(); // This line is now removed.
-
 app.UseAuthorization();
 
 app.MapControllers();

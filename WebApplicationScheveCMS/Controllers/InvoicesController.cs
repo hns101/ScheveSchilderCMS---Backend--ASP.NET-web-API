@@ -3,6 +3,9 @@ using WebApplicationScheveCMS.Models;
 using WebApplicationScheveCMS.Services;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using Microsoft.AspNetCore.Hosting; // Ensure this is present
+using Microsoft.Extensions.Logging; // Add this using statement
 
 namespace WebApplicationScheveCMS.Controllers
 {
@@ -14,80 +17,119 @@ namespace WebApplicationScheveCMS.Controllers
         private readonly StudentService _studentService;
         private readonly PdfService _pdfService;
         private readonly FileService _fileService;
+        private readonly IWebHostEnvironment _env;
+        private readonly ILogger<InvoicesController> _logger; // Inject ILogger
 
         public InvoicesController(
             InvoiceService invoiceService, 
             StudentService studentService, 
             PdfService pdfService, 
-            FileService fileService)
+            FileService fileService,
+            IWebHostEnvironment env,
+            ILogger<InvoicesController> logger) // Add ILogger to constructor
         {
             _invoiceService = invoiceService;
             _studentService = studentService;
             _pdfService = pdfService;
             _fileService = fileService;
+            _env = env;
+            _logger = logger; // Assign logger
         }
 
         // GET: api/invoices
-        // This will be expanded later to include filtering
         [HttpGet]
-        public async Task<ActionResult<List<Invoice>>> Get() =>
-            await _invoiceService.GetAsync();
+        public async Task<ActionResult<List<Invoice>>> Get()
+        {
+            try
+            {
+                var invoices = await _invoiceService.GetAsync();
+                return Ok(invoices);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting all invoices.");
+                return StatusCode(500, "Internal server error.");
+            }
+        }
 
         // GET: api/invoices/{id}
         [HttpGet("{id}")]
         public async Task<ActionResult<Invoice>> Get(string id)
         {
-            var invoice = await _invoiceService.GetAsync(id);
-
-            if (invoice is null)
+            try
             {
-                return NotFound();
-            }
+                var invoice = await _invoiceService.GetAsync(id);
 
-            return invoice;
+                if (invoice is null)
+                {
+                    return NotFound();
+                }
+
+                return Ok(invoice);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error getting invoice with ID: {id}.");
+                return StatusCode(500, "Internal server error.");
+            }
         }
         
         // DELETE: api/invoices/{id}
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(string id)
         {
-            var invoice = await _invoiceService.GetAsync(id);
-
-            if (invoice is null)
+            try
             {
-                return NotFound();
-            }
+                var invoice = await _invoiceService.GetAsync(id);
 
-            // Delete the associated PDF file
-            if (!string.IsNullOrEmpty(invoice.InvoicePdfPath))
+                if (invoice is null)
+                {
+                    return NotFound();
+                }
+
+                if (!string.IsNullOrEmpty(invoice.InvoicePdfPath))
+                {
+                    _fileService.DeleteFile(invoice.InvoicePdfPath);
+                }
+
+                await _invoiceService.RemoveAsync(id);
+
+                return NoContent();
+            }
+            catch (Exception ex)
             {
-                _fileService.DeleteFile(invoice.InvoicePdfPath);
+                _logger.LogError(ex, $"Error deleting invoice with ID: {id}.");
+                return StatusCode(500, "Internal server error.");
             }
-
-            await _invoiceService.RemoveAsync(id);
-
-            return NoContent();
         }
 
         // GET: api/invoices/file/{id}
         [HttpGet("file/{id}")]
         public async Task<IActionResult> GetFile(string id)
         {
-            var invoice = await _invoiceService.GetAsync(id);
-            if (invoice == null || string.IsNullOrEmpty(invoice.InvoicePdfPath))
+            try
             {
-                return NotFound();
-            }
+                var invoice = await _invoiceService.GetAsync(id);
+                if (invoice == null || string.IsNullOrEmpty(invoice.InvoicePdfPath))
+                {
+                    return NotFound("Invoice or PDF path not found.");
+                }
 
-            var filePath = Path.Combine(Directory.GetCurrentDirectory(), "Invoices", Path.GetFileName(invoice.InvoicePdfPath));
-            
-            if (System.IO.File.Exists(filePath))
+                var filePath = invoice.InvoicePdfPath; // Path from DB is already full path
+                
+                if (System.IO.File.Exists(filePath))
+                {
+                    var fileBytes = await System.IO.File.ReadAllBytesAsync(filePath);
+                    return File(fileBytes, "application/pdf", Path.GetFileName(filePath));
+                }
+
+                return NotFound("PDF file not found on server.");
+            }
+            catch (Exception ex)
             {
-                var fileBytes = await System.IO.File.ReadAllBytesAsync(filePath);
-                return File(fileBytes, "application/pdf", Path.GetFileName(filePath));
+                _logger.LogError(ex, $"Error getting invoice file for ID: {id}.");
+                return StatusCode(500, "Internal server error.");
             }
-
-            return NotFound();
         }
 
         // POST: api/invoices/batch-generate
@@ -103,33 +145,48 @@ namespace WebApplicationScheveCMS.Controllers
 
             foreach (var studentId in request.StudentIds)
             {
-                var student = await _studentService.GetAsync(studentId);
-
-                if (student is null)
+                try // Add try-catch around each student's invoice generation
                 {
-                    // Optionally log or handle a student not found case
-                    continue; 
+                    var student = await _studentService.GetAsync(studentId);
+
+                    if (student is null)
+                    {
+                        _logger.LogWarning($"Student with ID '{studentId}' not found. Skipping invoice generation for this student.");
+                        continue; 
+                    }
+
+                    var newInvoice = new Invoice
+                    {
+                        StudentId = student.Id!,
+                        Date = DateTime.Now,
+                        AmountTotal = request.AmountTotal,
+                        VAT = request.VAT,
+                        Description = request.Description
+                    };
+                    
+                    // Generate the PDF
+                    var pdfBytes = _pdfService.GenerateInvoicePdf(student, newInvoice);
+                    
+                    // Generate a unique file name for the PDF
+                    var fileName = $"Factuur_{Guid.NewGuid()}.pdf";
+
+                    // Save the PDF and get the full file path
+                    newInvoice.InvoicePdfPath = _fileService.SaveInvoicePdf(fileName, pdfBytes);
+
+                    // Save the invoice record to the database
+                    await _invoiceService.CreateAsync(newInvoice);
+                    generatedInvoices.Add(newInvoice);
                 }
-
-                var newInvoice = new Invoice
+                catch (Exception ex)
                 {
-                    StudentId = student.Id!,
-                    Date = DateTime.Now,
-                    AmountTotal = request.AmountTotal,
-                    VAT = request.VAT,
-                    Description = request.Description
-                };
-                
-                // Generate the PDF
-                var pdfBytes = _pdfService.GenerateInvoicePdf(student, newInvoice);
-                var fileName = $"Factuur_{newInvoice.Id}.pdf";
+                    _logger.LogError(ex, $"Error generating invoice for student ID: {studentId}.");
+                    // Continue to process other students even if one fails
+                }
+            }
 
-                // Save the PDF and get the file path
-                newInvoice.InvoicePdfPath = _fileService.SaveInvoicePdf(fileName, pdfBytes);
-
-                // Save the invoice to the database
-                await _invoiceService.CreateAsync(newInvoice);
-                generatedInvoices.Add(newInvoice);
+            if (!generatedInvoices.Any())
+            {
+                return StatusCode(500, "No invoices were successfully generated.");
             }
 
             return Ok(generatedInvoices);
