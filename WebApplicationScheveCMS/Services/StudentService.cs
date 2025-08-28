@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using MongoDB.Driver;
-using WebApplicationScheveCMS.Models;
+using WebApplicationScheveCMS.Models; // Use the single Student model
 
 namespace WebApplicationScheveCMS.Services
 {
@@ -25,13 +25,16 @@ namespace WebApplicationScheveCMS.Services
                 studentDatabaseSettings.Value.InvoicesCollectionName);
         }
 
-        // Renamed from GetAsync() to be more explicit
         public async Task<List<Student>> GetAllAsync() =>
             await _studentsCollection.Find(_ => true).ToListAsync();
 
-        // New method to get a single student without invoices
         public async Task<Student?> GetAsync(string id) =>
             await _studentsCollection.Find(x => x.Id == id).FirstOrDefaultAsync();
+
+        // New method to get a student by StudentNumber (for duplicate check)
+        public async Task<Student?> GetByStudentNumberAsync(string studentNumber) =>
+            await _studentsCollection.Find(x => x.StudentNumber == studentNumber).FirstOrDefaultAsync();
+
 
         public async Task<Student?> GetStudentWithInvoicesAsync(string id)
         {
@@ -46,10 +49,11 @@ namespace WebApplicationScheveCMS.Services
                         { "foreignField", "StudentId" },
                         { "as", "Invoices" }
                     }),
+                // Unwind and sort, but preserve students without invoices
                 new BsonDocument("$unwind", new BsonDocument
                 {
                     { "path", "$Invoices" },
-                    { "preserveNullAndEmptyArrays", true } // Keep students with no invoices
+                    { "preserveNullAndEmptyArrays", true }
                 }),
                 new BsonDocument("$sort", new BsonDocument("Invoices.Date", -1)),
                 new BsonDocument("$group", new BsonDocument
@@ -67,12 +71,12 @@ namespace WebApplicationScheveCMS.Services
                         { "RegistrationDocumentPath", new BsonDocument("$first", "$RegistrationDocumentPath") },
                         { "Invoices", new BsonDocument("$push", new BsonDocument
                             {
-                                { "InvoiceId", "$Invoices.Id" },
-                                { "InvoiceDate", "$Invoices.Date" },
-                                { "AmountTotal", "$Invoices.AmountTotal" },
-                                { "VAT", "$Invoices.VAT" },
-                                { "Description", "$Invoices.Description" },
-                                { "InvoicePdfPath", "$Invoices.InvoicePdfPath" }
+                                { "id", "$Invoices._id" }, // MongoDB _id maps to 'id'
+                                { "date", "$Invoices.Date" },
+                                { "amountTotal", "$Invoices.AmountTotal" },
+                                { "vat", "$Invoices.VAT" },
+                                { "description", "$Invoices.Description" },
+                                { "invoicePdfPath", "$Invoices.InvoicePdfPath" }
                             })
                         }
                     })
@@ -85,8 +89,16 @@ namespace WebApplicationScheveCMS.Services
             return studentWithInvoices;
         }
 
-        public async Task CreateAsync(Student newStudent) =>
+        public async Task CreateAsync(Student newStudent)
+        {
+            // Check for duplicate StudentNumber before creating
+            var existingStudent = await _studentsCollection.Find(s => s.StudentNumber == newStudent.StudentNumber).FirstOrDefaultAsync();
+            if (existingStudent != null)
+            {
+                throw new InvalidOperationException($"Student with number '{newStudent.StudentNumber}' already exists.");
+            }
             await _studentsCollection.InsertOneAsync(newStudent);
+        }
 
         public async Task UpdateAsync(string id, Student updatedStudent) =>
             await _studentsCollection.ReplaceOneAsync(x => x.Id == id, updatedStudent);

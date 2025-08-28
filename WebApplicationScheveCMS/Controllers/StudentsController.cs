@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using WebApplicationScheveCMS.Models;
+using WebApplicationScheveCMS.Models; // Use the single Student model
 using WebApplicationScheveCMS.Services;
 
 namespace WebApplicationScheveCMS.Controllers
@@ -9,7 +9,7 @@ namespace WebApplicationScheveCMS.Controllers
     public class StudentsController : ControllerBase
     {
         private readonly StudentService _studentService;
-        private readonly InvoiceService _invoiceService;
+        private readonly InvoiceService _invoiceService; // Keep this if needed for other logic later
 
         public StudentsController(StudentService studentService, InvoiceService invoiceService)
         {
@@ -23,7 +23,6 @@ namespace WebApplicationScheveCMS.Controllers
             await _studentService.GetAllAsync();
 
         // GET: api/students/{id}
-        // This endpoint is updated to use the new service method
         [HttpGet("{id}")]
         public async Task<ActionResult<Student>> Get(string id)
         {
@@ -41,8 +40,20 @@ namespace WebApplicationScheveCMS.Controllers
         [HttpPost]
         public async Task<IActionResult> Post(Student newStudent)
         {
-            await _studentService.CreateAsync(newStudent);
-            return CreatedAtAction(nameof(Get), new { id = newStudent.Id }, newStudent);
+            try
+            {
+                await _studentService.CreateAsync(newStudent);
+                return CreatedAtAction(nameof(Get), new { id = newStudent.Id }, newStudent);
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Return a 409 Conflict if student number already exists
+                return Conflict(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Internal server error: {ex.Message}");
+            }
         }
 
         // PUT: api/students/{id}
@@ -56,7 +67,7 @@ namespace WebApplicationScheveCMS.Controllers
                 return NotFound();
             }
 
-            updatedStudent.Id = student.Id;
+            updatedStudent.Id = student.Id; // Ensure the ID from the URL is used
             await _studentService.UpdateAsync(id, updatedStudent);
 
             return NoContent();
