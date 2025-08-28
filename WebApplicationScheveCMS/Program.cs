@@ -4,7 +4,8 @@ using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using MongoDB.Bson.Serialization; // Add this using statement
 using MongoDB.Bson.Serialization.IdGenerators; // Add this using statement
-using MongoDB.Bson.Serialization.Serializers; // Add this using statement
+using MongoDB.Bson.Serialization.Serializers;
+using MongoDB.Bson; // Add this using statement
 
 var builder = WebApplication.CreateBuilder(args);
 

@@ -1,8 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
 using WebApplicationScheveCMS.Models;
 using WebApplicationScheveCMS.Services;
-using Microsoft.Extensions.Logging; // Ensure this is present
-using System; // Ensure this is present
+using Microsoft.Extensions.Logging;
+using System;
+using System.Collections.Generic;
 
 namespace WebApplicationScheveCMS.Controllers
 {
@@ -12,13 +13,13 @@ namespace WebApplicationScheveCMS.Controllers
     {
         private readonly StudentService _studentService;
         private readonly InvoiceService _invoiceService;
-        private readonly ILogger<StudentsController> _logger; // Inject ILogger
+        private readonly ILogger<StudentsController> _logger;
 
         public StudentsController(StudentService studentService, InvoiceService invoiceService, ILogger<StudentsController> logger)
         {
             _studentService = studentService;
             _invoiceService = invoiceService;
-            _logger = logger; // Assign logger
+            _logger = logger;
         }
 
         // GET: api/students
@@ -36,7 +37,7 @@ namespace WebApplicationScheveCMS.Controllers
             }
         }
 
-        // GET: api/students/{id}
+        // GET: api/students/{id} - Existing endpoint by ObjectId
         [HttpGet("{id}")]
         public async Task<ActionResult<Student>> Get(string id)
         {
@@ -52,7 +53,7 @@ namespace WebApplicationScheveCMS.Controllers
 
                 return student;
             }
-            catch (FormatException ex) // Catch specific format exception for ObjectId conversion
+            catch (FormatException ex)
             {
                 _logger.LogError(ex, $"Invalid student ID format: '{id}'.");
                 return BadRequest($"Invalid student ID format: {id}");
@@ -61,6 +62,29 @@ namespace WebApplicationScheveCMS.Controllers
             {
                 _logger.LogError(ex, $"Error getting student with ID: {id}.");
                 return StatusCode(500, $"Internal server error when fetching student ID {id}.");
+            }
+        }
+
+        // NEW: GET: api/students/byNumber/{studentNumber}
+        [HttpGet("byNumber/{studentNumber}")]
+        public async Task<ActionResult<Student>> GetByStudentNumber(string studentNumber)
+        {
+            try
+            {
+                var student = await _studentService.GetStudentWithInvoicesByNumberAsync(studentNumber);
+
+                if (student is null)
+                {
+                    _logger.LogWarning($"Student with StudentNumber '{studentNumber}' not found.");
+                    return NotFound();
+                }
+
+                return student;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error getting student with StudentNumber: '{studentNumber}'.");
+                return StatusCode(500, $"Internal server error when fetching student by number {studentNumber}.");
             }
         }
 
