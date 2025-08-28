@@ -44,10 +44,12 @@ namespace WebApplicationScheveCMS.Services
         {
             try
             {
-                if (!ObjectId.TryParse(id, out ObjectId objectId))
+                // Add a basic length check before attempting to parse
+                if (string.IsNullOrEmpty(id) || id.Length != 24 || !ObjectId.TryParse(id, out ObjectId objectId))
                 {
                     _logger.LogWarning($"Attempted to get student with invalid ObjectId format: '{id}'");
-                    return null;
+                    // Throw a FormatException here to be caught by the controller and return BadRequest
+                    throw new FormatException($"Invalid ObjectId format for ID: '{id}'");
                 }
 
                 var pipeline = new BsonDocument[]
@@ -61,8 +63,6 @@ namespace WebApplicationScheveCMS.Services
                             { "foreignField", "StudentId" },
                             { "as", "Invoices" }
                         }),
-                    // Group back to a single student document, preserving all original fields
-                    // and ensuring invoices are a proper array.
                     new BsonDocument("$group", new BsonDocument
                     {
                         { "_id", "$_id" },
@@ -76,9 +76,8 @@ namespace WebApplicationScheveCMS.Services
                         { "accountNumber", new BsonDocument("$first", "$AccountNumber") },
                         { "dateOfRegistration", new BsonDocument("$first", "$DateOfRegistration") },
                         { "registrationDocumentPath", new BsonDocument("$first", "$RegistrationDocumentPath") },
-                        { "invoices", new BsonDocument("$first", "$Invoices") } // Keep the entire invoices array from lookup
+                        { "invoices", new BsonDocument("$first", "$Invoices") }
                     }),
-                    // Sort the invoices *within* the array after the lookup
                     new BsonDocument("$project", new BsonDocument
                     {
                         { "_id", "$_id" },
@@ -95,7 +94,7 @@ namespace WebApplicationScheveCMS.Services
                         { "invoices", new BsonDocument("$sortArray", new BsonDocument
                             {
                                 { "input", "$invoices" },
-                                { "sortBy", new BsonDocument("date", -1) } // Sort by invoice date descending
+                                { "sortBy", new BsonDocument("date", -1) }
                             })
                         }
                     })
