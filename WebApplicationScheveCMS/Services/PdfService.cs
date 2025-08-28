@@ -7,10 +7,11 @@ namespace WebApplicationScheveCMS.Services
 {
     public class PdfService
     {
-        // This is a placeholder for your PDF generation logic
         public byte[] GenerateInvoicePdf(Student student, Invoice invoice)
         {
-            // You will customize this with your company info and invoice details
+            // Set QuestPDF license type to Community (required even for free use)
+            QuestPDF.Settings.License = LicenseType.Community;
+            
             return Document.Create(container =>
             {
                 container.Page(page =>
@@ -35,6 +36,7 @@ namespace WebApplicationScheveCMS.Services
                             column.Item().Text($"Beschrijving: {invoice.Description}");
                             column.Item().Text($"Totaalbedrag: {invoice.AmountTotal:C}");
                             column.Item().Text($"BTW: {invoice.VAT:C}");
+                            column.Item().Text($"Bankgegevens: {student.BankName}, {student.AccountNumber}");
                         });
 
                     page.Footer()
