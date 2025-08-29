@@ -23,11 +23,14 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowFrontend",
         builder =>
         {
-            builder.WithOrigins("http://localhost")
+            // Allow requests from both the Dockerized Nginx frontend (http://localhost)
+            // and your local Vue.js dev server (http://localhost:5173)
+            builder.WithOrigins("http://localhost", "http://localhost:5173")
                    .AllowAnyHeader()
                    .AllowAnyMethod();
         });
 });
+
 
 // Add services to the container.
 builder.Services.AddControllers()
