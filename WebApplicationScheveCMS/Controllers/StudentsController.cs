@@ -24,7 +24,6 @@ namespace WebApplicationScheveCMS.Controllers
             _logger = logger;
         }
 
-        // GET: api/students
         [HttpGet]
         public async Task<ActionResult<List<Student>>> Get()
         {
@@ -39,7 +38,6 @@ namespace WebApplicationScheveCMS.Controllers
             }
         }
 
-        // GET: api/students/{id}
         [HttpGet("{id}")]
         public async Task<ActionResult<Student>> Get(string id)
         {
@@ -67,7 +65,28 @@ namespace WebApplicationScheveCMS.Controllers
             }
         }
         
-        // POST: api/students
+        [HttpGet("byNumber/{studentNumber}")]
+        public async Task<ActionResult<Student>> GetByStudentNumber(string studentNumber)
+        {
+            try
+            {
+                var student = await _studentService.GetStudentWithInvoicesByNumberAsync(studentNumber);
+
+                if (student is null)
+                {
+                    _logger.LogWarning($"Student with student number '{studentNumber}' not found.");
+                    return NotFound();
+                }
+
+                return student;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error getting student with StudentNumber: '{studentNumber}'.");
+                return StatusCode(500, $"Internal server error when fetching student number {studentNumber}.");
+            }
+        }
+
         [HttpPost]
         public async Task<IActionResult> Post(Student newStudent)
         {
@@ -87,7 +106,6 @@ namespace WebApplicationScheveCMS.Controllers
             }
         }
 
-        // PUT: api/students/{id}
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(string id, Student updatedStudent)
         {
@@ -112,7 +130,6 @@ namespace WebApplicationScheveCMS.Controllers
             }
         }
         
-        // DELETE: api/students/{id}
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(string id)
         {
@@ -140,7 +157,6 @@ namespace WebApplicationScheveCMS.Controllers
             }
         }
 
-        // New endpoint to handle file upload
         [HttpPost("{id}/registration-document")]
         public async Task<IActionResult> UploadRegistrationDocument(string id, IFormFile file)
         {
@@ -153,16 +169,13 @@ namespace WebApplicationScheveCMS.Controllers
                     return NotFound();
                 }
 
-                // If a document already exists, delete it first
                 if (!string.IsNullOrEmpty(student.RegistrationDocumentPath))
                 {
                     _fileService.DeleteFile(student.RegistrationDocumentPath);
                 }
 
-                // Save the new file
                 var filePath = _fileService.SaveStudentDocument(id, file);
 
-                // Update the student record with the new file path
                 student.RegistrationDocumentPath = filePath;
                 await _studentService.UpdateAsync(id, student);
 
@@ -175,7 +188,6 @@ namespace WebApplicationScheveCMS.Controllers
             }
         }
         
-        // New endpoint to delete a registration document
         [HttpDelete("{id}/registration-document")]
         public async Task<IActionResult> DeleteRegistrationDocument(string id)
         {
@@ -188,10 +200,8 @@ namespace WebApplicationScheveCMS.Controllers
                     return NotFound();
                 }
                 
-                // Delete the file from the file system
                 _fileService.DeleteFile(student.RegistrationDocumentPath);
 
-                // Remove the file path from the student record
                 student.RegistrationDocumentPath = null;
                 await _studentService.UpdateAsync(id, student);
 
