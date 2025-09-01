@@ -3,7 +3,7 @@ using WebApplicationScheveCMS.Models;
 using WebApplicationScheveCMS.Services;
 using Microsoft.Extensions.Logging;
 using System;
-using System.Collections.Generic;
+using System.IO;
 
 namespace WebApplicationScheveCMS.Controllers
 {
@@ -13,12 +13,14 @@ namespace WebApplicationScheveCMS.Controllers
     {
         private readonly StudentService _studentService;
         private readonly InvoiceService _invoiceService;
+        private readonly FileService _fileService;
         private readonly ILogger<StudentsController> _logger;
 
-        public StudentsController(StudentService studentService, InvoiceService invoiceService, ILogger<StudentsController> logger)
+        public StudentsController(StudentService studentService, InvoiceService invoiceService, FileService fileService, ILogger<StudentsController> logger)
         {
             _studentService = studentService;
             _invoiceService = invoiceService;
+            _fileService = fileService;
             _logger = logger;
         }
 
@@ -37,7 +39,7 @@ namespace WebApplicationScheveCMS.Controllers
             }
         }
 
-        // GET: api/students/{id} - Existing endpoint by ObjectId
+        // GET: api/students/{id}
         [HttpGet("{id}")]
         public async Task<ActionResult<Student>> Get(string id)
         {
@@ -47,42 +49,24 @@ namespace WebApplicationScheveCMS.Controllers
 
                 if (student is null)
                 {
-                    _logger.LogWarning($"Student with ID '{id}' not found or invalid format.");
-                    return NotFound(); // Return NotFound if service returns null
-                }
-
-                return student;
-            }
-            catch (Exception ex) // Catch all other exceptions
-            {
-                _logger.LogError(ex, $"Error getting student with ID: {id}.");
-                return StatusCode(500, $"Internal server error when fetching student ID {id}.");
-            }
-        }
-
-        // NEW: GET: api/students/byNumber/{studentNumber}
-        [HttpGet("byNumber/{studentNumber}")]
-        public async Task<ActionResult<Student>> GetByStudentNumber(string studentNumber)
-        {
-            try
-            {
-                var student = await _studentService.GetStudentWithInvoicesByNumberAsync(studentNumber);
-
-                if (student is null)
-                {
-                    _logger.LogWarning($"Student with StudentNumber '{studentNumber}' not found.");
+                    _logger.LogWarning($"Student with ID '{id}' not found.");
                     return NotFound();
                 }
 
                 return student;
             }
+            catch (FormatException ex)
+            {
+                _logger.LogError(ex, $"Invalid student ID format: '{id}'.");
+                return BadRequest($"Invalid student ID format: {id}");
+            }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error getting student with StudentNumber: '{studentNumber}'.");
-                return StatusCode(500, $"Internal server error when fetching student by number {studentNumber}.");
+                _logger.LogError(ex, $"Error getting student with ID: {id}.");
+                return StatusCode(500, $"Internal server error when fetching student ID {id}.");
             }
         }
-
+        
         // POST: api/students
         [HttpPost]
         public async Task<IActionResult> Post(Student newStudent)
@@ -127,7 +111,7 @@ namespace WebApplicationScheveCMS.Controllers
                 return StatusCode(500, $"Internal server error when updating student ID {id}.");
             }
         }
-
+        
         // DELETE: api/students/{id}
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(string id)
@@ -141,14 +125,82 @@ namespace WebApplicationScheveCMS.Controllers
                     return NotFound();
                 }
 
-                await _studentService.RemoveAsync(id);
+                if (!string.IsNullOrEmpty(student.RegistrationDocumentPath))
+                {
+                    _fileService.DeleteFile(student.RegistrationDocumentPath);
+                }
 
+                await _studentService.RemoveAsync(id);
                 return NoContent();
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Error deleting student with ID: {id}.");
                 return StatusCode(500, $"Internal server error when deleting student ID {id}.");
+            }
+        }
+
+        // New endpoint to handle file upload
+        [HttpPost("{id}/registration-document")]
+        public async Task<IActionResult> UploadRegistrationDocument(string id, IFormFile file)
+        {
+            try
+            {
+                var student = await _studentService.GetAsync(id);
+
+                if (student is null)
+                {
+                    return NotFound();
+                }
+
+                // If a document already exists, delete it first
+                if (!string.IsNullOrEmpty(student.RegistrationDocumentPath))
+                {
+                    _fileService.DeleteFile(student.RegistrationDocumentPath);
+                }
+
+                // Save the new file
+                var filePath = _fileService.SaveStudentDocument(id, file);
+
+                // Update the student record with the new file path
+                student.RegistrationDocumentPath = filePath;
+                await _studentService.UpdateAsync(id, student);
+
+                return Ok(new { filePath });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error uploading registration document for student with ID: {id}.");
+                return StatusCode(500, "Internal server error during file upload.");
+            }
+        }
+        
+        // New endpoint to delete a registration document
+        [HttpDelete("{id}/registration-document")]
+        public async Task<IActionResult> DeleteRegistrationDocument(string id)
+        {
+            try
+            {
+                var student = await _studentService.GetAsync(id);
+
+                if (student is null || string.IsNullOrEmpty(student.RegistrationDocumentPath))
+                {
+                    return NotFound();
+                }
+                
+                // Delete the file from the file system
+                _fileService.DeleteFile(student.RegistrationDocumentPath);
+
+                // Remove the file path from the student record
+                student.RegistrationDocumentPath = null;
+                await _studentService.UpdateAsync(id, student);
+
+                return NoContent();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error deleting registration document for student with ID: {id}.");
+                return StatusCode(500, "Internal server error during file deletion.");
             }
         }
     }
