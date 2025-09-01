@@ -4,6 +4,8 @@ using WebApplicationScheveCMS.Services;
 using Microsoft.Extensions.Logging;
 using System;
 using System.IO;
+using System.Linq;
+using Microsoft.AspNetCore.Hosting;
 
 namespace WebApplicationScheveCMS.Controllers
 {
@@ -15,13 +17,15 @@ namespace WebApplicationScheveCMS.Controllers
         private readonly InvoiceService _invoiceService;
         private readonly FileService _fileService;
         private readonly ILogger<StudentsController> _logger;
+        private readonly IWebHostEnvironment _env;
 
-        public StudentsController(StudentService studentService, InvoiceService invoiceService, FileService fileService, ILogger<StudentsController> logger)
+        public StudentsController(StudentService studentService, InvoiceService invoiceService, FileService fileService, ILogger<StudentsController> logger, IWebHostEnvironment env)
         {
             _studentService = studentService;
             _invoiceService = invoiceService;
             _fileService = fileService;
             _logger = logger;
+            _env = env;
         }
 
         [HttpGet]
@@ -211,6 +215,32 @@ namespace WebApplicationScheveCMS.Controllers
             {
                 _logger.LogError(ex, $"Error deleting registration document for student with ID: {id}.");
                 return StatusCode(500, "Internal server error during file deletion.");
+            }
+        }
+
+        // New GET endpoint to serve the registration document file
+        [HttpGet("{id}/registration-document")]
+        public async Task<IActionResult> GetRegistrationDocument(string id)
+        {
+            try
+            {
+                var student = await _studentService.GetAsync(id);
+
+                if (student == null || string.IsNullOrEmpty(student.RegistrationDocumentPath))
+                {
+                    return NotFound("Registration document not found.");
+                }
+
+                var filePath = student.RegistrationDocumentPath;
+                var fileBytes = await System.IO.File.ReadAllBytesAsync(filePath);
+                var fileName = Path.GetFileName(filePath);
+                
+                return File(fileBytes, "application/pdf", fileName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error getting registration document for student ID {id}.");
+                return StatusCode(500, "Internal server error.");
             }
         }
     }
