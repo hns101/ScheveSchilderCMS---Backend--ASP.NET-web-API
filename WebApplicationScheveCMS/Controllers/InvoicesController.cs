@@ -4,8 +4,9 @@ using WebApplicationScheveCMS.Services;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Microsoft.AspNetCore.Hosting; // Ensure this is present
-using Microsoft.Extensions.Logging; // Add this using statement
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Logging;
+using System;
 
 namespace WebApplicationScheveCMS.Controllers
 {
@@ -18,7 +19,7 @@ namespace WebApplicationScheveCMS.Controllers
         private readonly PdfService _pdfService;
         private readonly FileService _fileService;
         private readonly IWebHostEnvironment _env;
-        private readonly ILogger<InvoicesController> _logger; // Inject ILogger
+        private readonly ILogger<InvoicesController> _logger;
 
         public InvoicesController(
             InvoiceService invoiceService, 
@@ -26,14 +27,14 @@ namespace WebApplicationScheveCMS.Controllers
             PdfService pdfService, 
             FileService fileService,
             IWebHostEnvironment env,
-            ILogger<InvoicesController> logger) // Add ILogger to constructor
+            ILogger<InvoicesController> logger)
         {
             _invoiceService = invoiceService;
             _studentService = studentService;
             _pdfService = pdfService;
             _fileService = fileService;
             _env = env;
-            _logger = logger; // Assign logger
+            _logger = logger;
         }
 
         // GET: api/invoices
@@ -115,7 +116,7 @@ namespace WebApplicationScheveCMS.Controllers
                     return NotFound("Invoice or PDF path not found.");
                 }
 
-                var filePath = invoice.InvoicePdfPath; // Path from DB is already full path
+                var filePath = invoice.InvoicePdfPath;
                 
                 if (System.IO.File.Exists(filePath))
                 {
@@ -145,14 +146,14 @@ namespace WebApplicationScheveCMS.Controllers
 
             foreach (var studentId in request.StudentIds)
             {
-                try // Add try-catch around each student's invoice generation
+                try
                 {
                     var student = await _studentService.GetAsync(studentId);
 
                     if (student is null)
                     {
                         _logger.LogWarning($"Student with ID '{studentId}' not found. Skipping invoice generation for this student.");
-                        continue; 
+                        continue;
                     }
 
                     var newInvoice = new Invoice
@@ -164,16 +165,12 @@ namespace WebApplicationScheveCMS.Controllers
                         Description = request.Description
                     };
                     
-                    // Generate the PDF
                     var pdfBytes = _pdfService.GenerateInvoicePdf(student, newInvoice);
                     
-                    // Generate a unique file name for the PDF
                     var fileName = $"Factuur_{Guid.NewGuid()}.pdf";
 
-                    // Save the PDF and get the full file path
-                    newInvoice.InvoicePdfPath = _fileService.SaveInvoicePdf(fileName, pdfBytes);
+                    newInvoice.InvoicePdfPath = _fileService.SavePdf(fileName, pdfBytes);
 
-                    // Save the invoice record to the database
                     await _invoiceService.CreateAsync(newInvoice);
                     generatedInvoices.Add(newInvoice);
                 }
