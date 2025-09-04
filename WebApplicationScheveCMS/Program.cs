@@ -3,19 +3,38 @@ using WebApplicationScheveCMS.Services;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using MongoDB.Bson.Serialization;
+using MongoDB.Bson.Serialization.Conventions;
 using MongoDB.Bson.Serialization.IdGenerators;
 using MongoDB.Bson.Serialization.Serializers;
-using MongoDB.Bson.Serialization.Conventions;
-using MongoDB.Bson; // Keep for now, but the convention registration is removed
+using MongoDB.Bson;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// --- IMPORTANT: Removed CamelCaseElementNameConvention registration ---
-// The CamelCaseElementNameConvention is causing a conflict.
-// We will rely on direct PascalCase mapping between BSON and C# models.
-// var conventionPack = new ConventionPack { new CamelCaseElementNameConvention() };
-// ConventionRegistry.Register("CamelCaseConvention", conventionPack, t => true);
-// --- End Removed Convention Registration ---
+// --- BSON Class Map and Convention Registration ---
+ConventionRegistry.Register("CamelCaseConvention", new ConventionPack { new CamelCaseElementNameConvention() }, t => true);
+
+BsonClassMap.RegisterClassMap<Student>(cm =>
+{
+    cm.AutoMap();
+    cm.MapIdProperty(c => c.Id)
+      .SetIdGenerator(StringObjectIdGenerator.Instance)
+      .SetSerializer(new StringSerializer(BsonType.ObjectId));
+});
+
+BsonClassMap.RegisterClassMap<Invoice>(cm =>
+{
+    cm.AutoMap();
+    cm.MapIdProperty(c => c.Id)
+      .SetIdGenerator(StringObjectIdGenerator.Instance)
+      .SetSerializer(new StringSerializer(BsonType.ObjectId));
+    cm.MapProperty(c => c.StudentId)
+      .SetSerializer(new StringSerializer(BsonType.ObjectId));
+});
+// --- End BSON Class Map Registration ---
 
 // Add CORS services
 builder.Services.AddCors(options =>
@@ -23,14 +42,11 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowFrontend",
         builder =>
         {
-            // Allow requests from both the Dockerized Nginx frontend (http://localhost)
-            // and your local Vue.js dev server (http://localhost:5173)
             builder.WithOrigins("http://localhost", "http://localhost:5173")
                    .AllowAnyHeader()
                    .AllowAnyMethod();
         });
 });
-
 
 // Add services to the container.
 builder.Services.AddControllers()
@@ -49,36 +65,17 @@ builder.Services.AddSingleton<InvoiceService>();
 builder.Services.AddSingleton<FileService>();
 builder.Services.AddSingleton<PdfService>();
 
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
-
-// --- BSON Class Map Registration ---
-// This ensures MongoDB driver correctly maps string IDs to ObjectId
-BsonClassMap.RegisterClassMap<Student>(cm =>
-{
-    cm.AutoMap(); // AutoMap will now use default PascalCase mapping
-    cm.MapIdProperty(c => c.Id)
-      .SetIdGenerator(StringObjectIdGenerator.Instance)
-      .SetSerializer(new StringSerializer(BsonType.ObjectId));
-});
-BsonClassMap.RegisterClassMap<Invoice>(cm =>
-{
-    cm.AutoMap(); // AutoMap will now use default PascalCase mapping
-    cm.MapIdProperty(c => c.Id)
-      .SetIdGenerator(StringObjectIdGenerator.Instance)
-      .SetSerializer(new StringSerializer(BsonType.ObjectId));
-    cm.MapProperty(c => c.StudentId)
-      .SetSerializer(new StringSerializer(BsonType.ObjectId));
-});
-// --- End BSON Class Map Registration ---
-
+// Add Swagger/OpenAPI services
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+    app.UseSwagger();
+    app.UseSwaggerUI();
 }
 else
 {

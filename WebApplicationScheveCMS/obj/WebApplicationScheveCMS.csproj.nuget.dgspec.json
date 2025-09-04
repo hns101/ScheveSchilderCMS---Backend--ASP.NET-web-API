@@ -46,15 +46,23 @@
           "dependencies": {
             "Microsoft.AspNetCore.OpenApi": {
               "target": "Package",
-              "version": "[9.0.8, )"
+              "version": "[8.0.7, )"
+            },
+            "MongoDB.Bson": {
+              "target": "Package",
+              "version": "[2.27.0, )"
             },
             "MongoDB.Driver": {
               "target": "Package",
-              "version": "[3.4.3, )"
+              "version": "[2.27.0, )"
             },
             "QuestPDF": {
               "target": "Package",
-              "version": "[2025.7.0, )"
+              "version": "[2024.5.3, )"
+            },
+            "Swashbuckle.AspNetCore": {
+              "target": "Package",
+              "version": "[6.4.0, )"
             }
           },
           "imports": [
