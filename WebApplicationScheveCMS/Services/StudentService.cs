@@ -5,6 +5,8 @@ using WebApplicationScheveCMS.Models;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
+using System.Linq;
 
 namespace WebApplicationScheveCMS.Services
 {
@@ -34,18 +36,24 @@ namespace WebApplicationScheveCMS.Services
         public async Task<List<Student>> GetAllAsync() =>
             await _studentsCollection.Find(_ => true).ToListAsync();
 
-        public async Task<Student?> GetAsync(string id) =>
-            await _studentsCollection.Find(x => x.Id == id).FirstOrDefaultAsync();
-
+        public async Task<Student?> GetAsync(string id)
+        {
+            if (string.IsNullOrEmpty(id) || id.Length != 24 || !ObjectId.TryParse(id, out _))
+            {
+                return null;
+            }
+            return await _studentsCollection.Find(x => x.Id == id).FirstOrDefaultAsync();
+        }
+        
         public async Task<Student?> GetByStudentNumberAsync(string studentNumber) =>
             await _studentsCollection.Find(x => x.StudentNumber == studentNumber).FirstOrDefaultAsync();
 
         public async Task<Student?> GetStudentWithInvoicesAsync(string id)
         {
+            _logger.LogInformation($"GetStudentWithInvoicesAsync received ID: '{id}' (Length: {id?.Length ?? 0})");
+
             try
             {
-                _logger.LogInformation($"GetStudentWithInvoicesAsync received ID: '{id}' (Length: {id?.Length ?? 0})");
-
                 if (string.IsNullOrEmpty(id) || id.Length != 24 || !ObjectId.TryParse(id, out ObjectId objectId))
                 {
                     _logger.LogWarning($"Attempted to get student with invalid ObjectId format: '{id}'. ObjectId.TryParse failed.");
@@ -117,10 +125,10 @@ namespace WebApplicationScheveCMS.Services
 
         public async Task<Student?> GetStudentWithInvoicesByNumberAsync(string studentNumber)
         {
+            _logger.LogInformation($"GetStudentWithInvoicesByNumberAsync received StudentNumber: '{studentNumber}'");
+
             try
             {
-                _logger.LogInformation($"GetStudentWithInvoicesByNumberAsync received StudentNumber: '{studentNumber}'");
-
                 var pipeline = new BsonDocument[]
                 {
                     new BsonDocument("$match", new BsonDocument("StudentNumber", studentNumber)),
