@@ -61,32 +61,47 @@ namespace WebApplicationScheveCMS.Services
                             { "from", _invoicesCollection.CollectionNamespace.CollectionName },
                             { "localField", "_id" },
                             { "foreignField", "StudentId" },
-                            { "as", "Invoices" }
+                            { "as", "invoices" }
                         }),
-                    // Unwind and sort, but preserve students without invoices
                     new BsonDocument("$unwind", new BsonDocument
                     {
-                        { "path", "$Invoices" },
+                        { "path", "$invoices" },
                         { "preserveNullAndEmptyArrays", true }
                     }),
-                    new BsonDocument("$sort", new BsonDocument("Invoices.Date", -1)),
+                    new BsonDocument("$sort", new BsonDocument("invoices.Date", -1)),
                     new BsonDocument("$group", new BsonDocument
                     {
                         { "_id", "$_id" },
-                        { "Name", new BsonDocument("$first", "$Name") },
-                        { "StudentNumber", new BsonDocument("$first", "$StudentNumber") },
-                        { "Address", new BsonDocument("$first", "$Address") },
-                        { "Email", new BsonDocument("$first", "$Email") },
-                        { "PhoneNumber", new BsonDocument("$first", "$PhoneNumber") },
-                        { "EmergencyContact", new BsonDocument("$first", "$EmergencyContact") },
-                        { "BankName", new BsonDocument("$first", "$BankName") },
-                        { "AccountNumber", new BsonDocument("$first", "$AccountNumber") },
-                        { "DateOfRegistration", new BsonDocument("$first", "$DateOfRegistration") },
-                        { "RegistrationDocumentPath", new BsonDocument("$first", "$RegistrationDocumentPath") },
-                        { "Invoices", new BsonDocument("$push", "$Invoices") }
+                        { "name", new BsonDocument("$first", "$Name") },
+                        { "studentNumber", new BsonDocument("$first", "$StudentNumber") },
+                        { "address", new BsonDocument("$first", "$Address") },
+                        { "email", new BsonDocument("$first", "$Email") },
+                        { "phoneNumber", new BsonDocument("$first", "$PhoneNumber") },
+                        { "emergencyContact", new BsonDocument("$first", "$EmergencyContact") },
+                        { "bankName", new BsonDocument("$first", "$BankName") },
+                        { "accountNumber", new BsonDocument("$first", "$AccountNumber") },
+                        { "dateOfRegistration", new BsonDocument("$first", "$DateOfRegistration") },
+                        { "registrationDocumentPath", new BsonDocument("$first", "$RegistrationDocumentPath") },
+                        { "invoices", new BsonDocument("$push", "$invoices") }
+                    }),
+                    new BsonDocument("$project", new BsonDocument
+                    {
+                        { "_id", 0 },
+                        { "id", "$_id" },
+                        { "name", "$name" },
+                        { "studentNumber", "$studentNumber" },
+                        { "address", "$address" },
+                        { "email", "$email" },
+                        { "phoneNumber", "$phoneNumber" },
+                        { "emergencyContact", "$emergencyContact" },
+                        { "bankName", "$bankName" },
+                        { "accountNumber", "$accountNumber" },
+                        { "dateOfRegistration", "$dateOfRegistration" },
+                        { "registrationDocumentPath", "$registrationDocumentPath" },
+                        { "invoices", "$invoices" }
                     })
                 };
-
+                
                 var studentWithInvoices = await _studentsCollection
                     .Aggregate<Student>(pipeline)
                     .FirstOrDefaultAsync();
@@ -115,25 +130,41 @@ namespace WebApplicationScheveCMS.Services
                             { "from", _invoicesCollection.CollectionNamespace.CollectionName },
                             { "localField", "_id" },
                             { "foreignField", "StudentId" },
-                            { "as", "Invoices" }
+                            { "as", "invoices" }
                         }),
                     new BsonDocument("$group", new BsonDocument
                     {
                         { "_id", "$_id" },
-                        { "Name", new BsonDocument("$first", "$Name") },
-                        { "StudentNumber", new BsonDocument("$first", "$StudentNumber") },
-                        { "Address", new BsonDocument("$first", "$Address") },
-                        { "Email", new BsonDocument("$first", "$Email") },
-                        { "PhoneNumber", new BsonDocument("$first", "$PhoneNumber") },
-                        { "EmergencyContact", new BsonDocument("$first", "$EmergencyContact") },
-                        { "BankName", new BsonDocument("$first", "$BankName") },
-                        { "AccountNumber", new BsonDocument("$first", "$AccountNumber") },
-                        { "DateOfRegistration", new BsonDocument("$first", "$DateOfRegistration") },
-                        { "RegistrationDocumentPath", new BsonDocument("$first", "$RegistrationDocumentPath") },
-                        { "Invoices", new BsonDocument("$first", "$Invoices") }
+                        { "name", new BsonDocument("$first", "$Name") },
+                        { "studentNumber", new BsonDocument("$first", "$StudentNumber") },
+                        { "address", new BsonDocument("$first", "$Address") },
+                        { "email", new BsonDocument("$first", "$Email") },
+                        { "phoneNumber", new BsonDocument("$first", "$PhoneNumber") },
+                        { "emergencyContact", new BsonDocument("$first", "$EmergencyContact") },
+                        { "bankName", new BsonDocument("$first", "$BankName") },
+                        { "accountNumber", new BsonDocument("$first", "$AccountNumber") },
+                        { "dateOfRegistration", new BsonDocument("$first", "$DateOfRegistration") },
+                        { "registrationDocumentPath", new BsonDocument("$first", "$RegistrationDocumentPath") },
+                        { "invoices", new BsonDocument("$first", "$invoices") }
+                    }),
+                    new BsonDocument("$project", new BsonDocument
+                    {
+                        { "_id", 0 },
+                        { "id", "$_id" },
+                        { "name", "$name" },
+                        { "studentNumber", "$studentNumber" },
+                        { "address", "$address" },
+                        { "email", "$email" },
+                        { "phoneNumber", "$phoneNumber" },
+                        { "emergencyContact", "$emergencyContact" },
+                        { "bankName", "$bankName" },
+                        { "accountNumber", "$accountNumber" },
+                        { "dateOfRegistration", "$dateOfRegistration" },
+                        { "registrationDocumentPath", "$registrationDocumentPath" },
+                        { "invoices", "$invoices" }
                     })
                 };
-
+                
                 var studentWithInvoices = await _studentsCollection
                     .Aggregate<Student>(pipeline)
                     .FirstOrDefaultAsync();
