@@ -11,31 +11,10 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.AspNetCore.Hosting; // Added this using statement
+using Microsoft.AspNetCore.Hosting;
+using QuestPDF.Infrastructure; // Added this using statement
 
 var builder = WebApplication.CreateBuilder(args);
-
-// --- BSON Class Map and Convention Registration ---
-ConventionRegistry.Register("CamelCaseConvention", new ConventionPack { new CamelCaseElementNameConvention() }, t => true);
-
-BsonClassMap.RegisterClassMap<Student>(cm =>
-{
-    cm.AutoMap();
-    cm.MapIdProperty(c => c.Id)
-      .SetIdGenerator(StringObjectIdGenerator.Instance)
-      .SetSerializer(new StringSerializer(BsonType.ObjectId));
-});
-
-BsonClassMap.RegisterClassMap<Invoice>(cm =>
-{
-    cm.AutoMap();
-    cm.MapIdProperty(c => c.Id)
-      .SetIdGenerator(StringObjectIdGenerator.Instance)
-      .SetSerializer(new StringSerializer(BsonType.ObjectId));
-    cm.MapProperty(c => c.StudentId)
-      .SetSerializer(new StringSerializer(BsonType.ObjectId));
-});
-// --- End BSON Class Map Registration ---
 
 // Add CORS services
 builder.Services.AddCors(options =>
@@ -51,7 +30,7 @@ builder.Services.AddCors(options =>
 
 // Add services to the container.
 builder.Services.AddControllers()
-    .AddJsonOptions(options => // Configure JSON serialization to camelCase for API output
+    .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
     });
