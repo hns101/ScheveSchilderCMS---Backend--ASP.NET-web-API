@@ -6,6 +6,9 @@ using System;
 using System.IO;
 using System.Linq;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace WebApplicationScheveCMS.Controllers
 {
@@ -218,7 +221,6 @@ namespace WebApplicationScheveCMS.Controllers
             }
         }
 
-        // New GET endpoint to serve the registration document file
         [HttpGet("{id}/registration-document")]
         public async Task<IActionResult> GetRegistrationDocument(string id)
         {
