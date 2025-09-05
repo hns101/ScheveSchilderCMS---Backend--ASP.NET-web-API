@@ -7,6 +7,9 @@ using System.Linq;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Logging;
 using System;
+using System.Threading.Tasks;
+using System.Text.Json;
+using QuestPDF.Infrastructure;
 
 namespace WebApplicationScheveCMS.Controllers
 {
@@ -20,6 +23,7 @@ namespace WebApplicationScheveCMS.Controllers
         private readonly FileService _fileService;
         private readonly IWebHostEnvironment _env;
         private readonly ILogger<InvoicesController> _logger;
+        private readonly IConfiguration _configuration;
 
         public InvoicesController(
             InvoiceService invoiceService, 
@@ -27,7 +31,8 @@ namespace WebApplicationScheveCMS.Controllers
             PdfService pdfService, 
             FileService fileService,
             IWebHostEnvironment env,
-            ILogger<InvoicesController> logger)
+            ILogger<InvoicesController> logger,
+            IConfiguration configuration)
         {
             _invoiceService = invoiceService;
             _studentService = studentService;
@@ -35,6 +40,7 @@ namespace WebApplicationScheveCMS.Controllers
             _fileService = fileService;
             _env = env;
             _logger = logger;
+            _configuration = configuration;
         }
 
         // GET: api/invoices
@@ -187,6 +193,121 @@ namespace WebApplicationScheveCMS.Controllers
             }
 
             return Ok(generatedInvoices);
+        }
+        
+        // New endpoint to upload and set the default template
+        [HttpPost("template")]
+        public async Task<IActionResult> UploadInvoiceTemplate(IFormFile file)
+        {
+            try
+            {
+                if (file == null || file.Length == 0)
+                {
+                    return BadRequest("No file uploaded.");
+                }
+
+                // Delete the old template if it exists
+                var oldFilePath = _configuration["StudentDatabaseSettings:DefaultInvoiceTemplatePath"];
+                if (!string.IsNullOrEmpty(oldFilePath) && System.IO.File.Exists(oldFilePath))
+                {
+                    System.IO.File.Delete(oldFilePath);
+                }
+                
+                // Save the new file
+                var filePath = _fileService.SavePdf(file.FileName, await ReadAllBytesAsync(file));
+
+                // Read and update the appsettings.json file
+                var appSettingsPath = Path.Combine(_env.ContentRootPath, "appsettings.json");
+                var json = await System.IO.File.ReadAllTextAsync(appSettingsPath);
+                var jsonObj = JsonDocument.Parse(json).RootElement.Clone();
+                
+                // Update the JSON object
+                if (jsonObj.TryGetProperty("StudentDatabaseSettings", out var studentSettingsElement) && studentSettingsElement.ValueKind == JsonValueKind.Object)
+                {
+                    var newJsonObj = (System.Text.Json.Nodes.JsonObject)System.Text.Json.Nodes.JsonNode.Parse(jsonObj.ToString()!)!;
+                    newJsonObj["StudentDatabaseSettings"]!["DefaultInvoiceTemplatePath"] = filePath;
+                    string output = newJsonObj.ToString();
+                    await System.IO.File.WriteAllTextAsync(appSettingsPath, output);
+                }
+                
+                return Ok(new { filePath });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error uploading invoice template.");
+                return StatusCode(500, "Internal server error during template upload.");
+            }
+        }
+        
+        // New endpoint to get the default template file for viewing
+        [HttpGet("template")]
+        public IActionResult GetInvoiceTemplate()
+        {
+            try
+            {
+                var filePath = _configuration["StudentDatabaseSettings:DefaultInvoiceTemplatePath"];
+                
+                if (string.IsNullOrEmpty(filePath) || !System.IO.File.Exists(filePath))
+                {
+                    return NotFound("Default invoice template not found.");
+                }
+
+                var fileBytes = System.IO.File.ReadAllBytes(filePath);
+                var fileName = Path.GetFileName(filePath);
+
+                return File(fileBytes, "application/pdf", fileName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving invoice template.");
+                return StatusCode(500, "Internal server error.");
+            }
+        }
+
+        // New endpoint to generate a preview of the default template
+        [HttpGet("template/preview")]
+        public IActionResult GetInvoiceTemplatePreview()
+        {
+            try
+            {
+                var dummyStudent = new Student
+                {
+                    Name = "Voorbeeld Student",
+                    Address = "Voorbeeldstraat 1, 1234 AB Voorbeeldstad",
+                    Email = "voorbeeld@student.nl",
+                    StudentNumber = "P001",
+                    BankName = "Voorbeeld Bank",
+                    AccountNumber = "NL12VOOR0123456789"
+                };
+
+                var dummyInvoice = new Invoice
+                {
+                    Date = DateTime.Now,
+                    AmountTotal = 50.00M,
+                    VAT = 21.00M,
+                    Description = "Dit is een voorbeeld van de factuur. De tekst is bewerkbaar."
+                };
+
+                var pdfBytes = _pdfService.GenerateInvoicePdf(dummyStudent, dummyInvoice);
+                var fileName = "preview.pdf";
+                
+                return File(pdfBytes, "application/pdf", fileName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating invoice template preview.");
+                return StatusCode(500, "Internal server error.");
+            }
+        }
+        
+        // Helper method to read IFormFile into a byte array
+        private static async Task<byte[]> ReadAllBytesAsync(IFormFile file)
+        {
+            using (var memoryStream = new MemoryStream())
+            {
+                await file.CopyToAsync(memoryStream);
+                return memoryStream.ToArray();
+            }
         }
     }
 

@@ -2,11 +2,19 @@ using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
 using WebApplicationScheveCMS.Models;
+using System.IO;
 
 namespace WebApplicationScheveCMS.Services
 {
     public class PdfService
     {
+        private readonly IWebHostEnvironment _env;
+
+        public PdfService(IWebHostEnvironment env)
+        {
+            _env = env;
+        }
+
         public byte[] GenerateInvoicePdf(Student student, Invoice invoice)
         {
             // Set QuestPDF license type to Community (required even for free use)
@@ -26,16 +34,8 @@ namespace WebApplicationScheveCMS.Services
                         {
                             row.RelativeColumn().Column(column =>
                             {
-                                column.Item().PaddingBottom(10).Image("Files/Logo/scheve-schilder-logo.png", ImageScaling.FitWidth);
-                                column.Item().Text("Schilderschool De Scheve Schilder").FontSize(12).SemiBold();
-                                column.Item().Text("Weereweg 120");
-                                column.Item().Text("1732 LN Lutjewinkel");
-                                column.Item().Text($"KVK: 89240626");
-                                column.Item().Text($"BTW: NL004707541858");
-                                column.Item().Text($"Bank: NL 03 RABO 0338 9173 22");
-                                column.Item().Text($"Info@scheveschilder.nl");
-                                column.Item().Text($"06-10910012");
-                                column.Item().Text($"www.scheveschilder.nl");
+                                // Placeholder for logo, to be added later
+                                // This section is now empty as requested
                             });
 
                             row.RelativeColumn().AlignRight().Column(column =>
@@ -55,7 +55,6 @@ namespace WebApplicationScheveCMS.Services
                             column.Item().Text("Omschrijving").SemiBold();
                             column.Item().Text(invoice.Description);
 
-                            // The summary table
                             column.Item().PaddingTop(20).Table(table =>
                             {
                                 table.ColumnsDefinition(columns =>
@@ -74,8 +73,7 @@ namespace WebApplicationScheveCMS.Services
                                 table.Cell().AlignRight().Text($"{invoice.AmountTotal:C}");
                             });
 
-                            // Automatic payment note
-                            column.Item().PaddingTop(20).Text("Dit bedrag wordt automatisch geïncasseerd omstreeks 11-10-2024.");
+                            column.Item().PaddingTop(20).Text($"Dit bedrag wordt automatisch geïncasseerd omstreeks {invoice.Date:dd-MM-yyyy}.");
                         });
 
                     page.Footer()
