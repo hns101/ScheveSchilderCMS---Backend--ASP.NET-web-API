@@ -50,108 +50,76 @@ namespace WebApplicationScheveCMS.Services
 
         public async Task<Student?> GetStudentWithInvoicesAsync(string id)
         {
-            _logger.LogInformation($"GetStudentWithInvoicesAsync received ID: '{id}' (Length: {id?.Length ?? 0})");
+            _logger.LogInformation("GetStudentWithInvoicesAsync received ID: '{Id}' (Length: {Length})", id, id?.Length ?? 0);
 
             try
             {
                 if (string.IsNullOrEmpty(id) || id.Length != 24 || !ObjectId.TryParse(id, out ObjectId objectId))
                 {
-                    _logger.LogWarning($"Attempted to get student with invalid ObjectId format: '{id}'. ObjectId.TryParse failed.");
+                    _logger.LogWarning("Attempted to get student with invalid ObjectId format: '{Id}'. ObjectId.TryParse failed.", id);
                     return null;
                 }
 
-                var pipeline = new BsonDocument[]
-                {
-                    new BsonDocument("$match", new BsonDocument("_id", objectId)),
-                    new BsonDocument("$lookup",
-                        new BsonDocument
-                        {
-                            { "from", _invoicesCollection.CollectionNamespace.CollectionName },
-                            { "localField", "_id" },
-                            { "foreignField", "StudentId" },
-                            { "as", "Invoices" }
-                        }),
-                    new BsonDocument("$unwind", new BsonDocument
-                    {
-                        { "path", "$Invoices" },
-                        { "preserveNullAndEmptyArrays", true }
-                    }),
-                    new BsonDocument("$sort", new BsonDocument("Invoices.Date", -1)),
-                    new BsonDocument("$group", new BsonDocument
-                    {
-                        { "_id", "$_id" },
-                        { "Name", new BsonDocument("$first", "$Name") },
-                        { "StudentNumber", new BsonDocument("$first", "$StudentNumber") },
-                        { "Address", new BsonDocument("$first", "$Address") },
-                        { "Email", new BsonDocument("$first", "$Email") },
-                        { "PhoneNumber", new BsonDocument("$first", "$PhoneNumber") },
-                        { "EmergencyContact", new BsonDocument("$first", "$EmergencyContact") },
-                        { "BankName", new BsonDocument("$first", "$BankName") },
-                        { "AccountNumber", new BsonDocument("$first", "$AccountNumber") },
-                        { "DateOfRegistration", new BsonDocument("$first", "$DateOfRegistration") },
-                        { "RegistrationDocumentPath", new BsonDocument("$first", "$RegistrationDocumentPath") },
-                        { "Invoices", new BsonDocument("$push", "$Invoices") }
-                    })
-                };
-
-                var studentWithInvoices = await _studentsCollection.Aggregate<Student>(pipeline).FirstOrDefaultAsync();
+                // First, get the student directly
+                var student = await _studentsCollection.Find(x => x.Id == id).FirstOrDefaultAsync();
                 
-                return studentWithInvoices;
+                if (student == null)
+                {
+                    _logger.LogWarning("Student with ID '{Id}' not found", id);
+                    return null;
+                }
+
+                // Then get the invoices for this student
+                var invoices = await _invoicesCollection
+                    .Find(x => x.StudentId == id)
+                    .SortByDescending(x => x.Date)
+                    .ToListAsync();
+
+                // Assign invoices to student
+                student.Invoices = invoices;
+
+                _logger.LogInformation("Successfully retrieved student '{StudentName}' with {InvoiceCount} invoices", student.Name, invoices.Count);
+
+                return student;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error in GetStudentWithInvoicesAsync for ID: '{id}'.");
+                _logger.LogError(ex, "Error in GetStudentWithInvoicesAsync for ID: '{Id}'.", id);
                 throw;
             }
         }
 
         public async Task<Student?> GetStudentWithInvoicesByNumberAsync(string studentNumber)
         {
-            _logger.LogInformation($"GetStudentWithInvoicesByNumberAsync received StudentNumber: '{studentNumber}'");
+            _logger.LogInformation("GetStudentWithInvoicesByNumberAsync received StudentNumber: '{StudentNumber}'", studentNumber);
 
             try
             {
-                var pipeline = new BsonDocument[]
-                {
-                    new BsonDocument("$match", new BsonDocument("StudentNumber", studentNumber)),
-                    new BsonDocument("$lookup",
-                        new BsonDocument
-                        {
-                            { "from", _invoicesCollection.CollectionNamespace.CollectionName },
-                            { "localField", "_id" },
-                            { "foreignField", "StudentId" },
-                            { "as", "Invoices" }
-                        }),
-                    new BsonDocument("$unwind", new BsonDocument
-                    {
-                        { "path", "$Invoices" },
-                        { "preserveNullAndEmptyArrays", true }
-                    }),
-                    new BsonDocument("$sort", new BsonDocument("Invoices.Date", -1)),
-                    new BsonDocument("$group", new BsonDocument
-                    {
-                        { "_id", "$_id" },
-                        { "name", new BsonDocument("$first", "$Name") },
-                        { "studentNumber", new BsonDocument("$first", "$StudentNumber") },
-                        { "address", new BsonDocument("$first", "$Address") },
-                        { "email", new BsonDocument("$first", "$Email") },
-                        { "phoneNumber", new BsonDocument("$first", "$PhoneNumber") },
-                        { "emergencyContact", new BsonDocument("$first", "$EmergencyContact") },
-                        { "bankName", new BsonDocument("$first", "$BankName") },
-                        { "accountNumber", new BsonDocument("$first", "$AccountNumber") },
-                        { "dateOfRegistration", new BsonDocument("$first", "$DateOfRegistration") },
-                        { "registrationDocumentPath", new BsonDocument("$first", "$RegistrationDocumentPath") },
-                        { "invoices", new BsonDocument("$push", "$Invoices") }
-                    })
-                };
-
-                var studentWithInvoices = await _studentsCollection.Aggregate<Student>(pipeline).FirstOrDefaultAsync();
+                // First, get the student by student number
+                var student = await _studentsCollection.Find(x => x.StudentNumber == studentNumber).FirstOrDefaultAsync();
                 
-                return studentWithInvoices;
+                if (student == null)
+                {
+                    _logger.LogWarning("Student with student number '{StudentNumber}' not found", studentNumber);
+                    return null;
+                }
+
+                // Then get the invoices for this student using the student's ID
+                var invoices = await _invoicesCollection
+                    .Find(x => x.StudentId == student.Id)
+                    .SortByDescending(x => x.Date)
+                    .ToListAsync();
+
+                // Assign invoices to student
+                student.Invoices = invoices;
+
+                _logger.LogInformation("Successfully retrieved student '{StudentName}' by number with {InvoiceCount} invoices", student.Name, invoices.Count);
+
+                return student;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error in GetStudentWithInvoicesByNumberAsync for StudentNumber: '{studentNumber}'.");
+                _logger.LogError(ex, "Error in GetStudentWithInvoicesByNumberAsync for StudentNumber: '{StudentNumber}'.", studentNumber);
                 throw;
             }
         }
