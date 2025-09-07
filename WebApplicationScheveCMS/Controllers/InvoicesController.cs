@@ -256,7 +256,10 @@ namespace WebApplicationScheveCMS.Controllers
                 // Save the new file with a consistent name
                 var fileName = $"invoice_template{Path.GetExtension(file.FileName).ToLowerInvariant()}";
                 var fileBytes = await ReadAllBytesAsync(file);
-                var filePath = _fileService.SaveImage(fileName, fileBytes); // Assuming you have SaveImage method
+                
+                // Use existing FileService.SavePdf method (assuming it can save any file type)
+                // Or create templates directory and save manually
+                var filePath = SaveTemplateFile(fileName, fileBytes);
 
                 // Update configuration
                 await UpdateTemplatePathInConfig(filePath);
@@ -375,7 +378,7 @@ namespace WebApplicationScheveCMS.Controllers
 
         #region Private Helper Methods
 
-        private string SaveImageFile(string fileName, byte[] fileBytes)
+        private string SaveTemplateFile(string fileName, byte[] fileBytes)
         {
             // Create templates directory if it doesn't exist
             var templatesDir = Path.Combine(_env.WebRootPath ?? _env.ContentRootPath, "templates");
