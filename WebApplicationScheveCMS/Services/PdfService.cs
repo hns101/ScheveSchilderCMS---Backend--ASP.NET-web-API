@@ -4,8 +4,7 @@ using QuestPDF.Infrastructure;
 using WebApplicationScheveCMS.Models;
 using System.IO;
 using Microsoft.AspNetCore.Hosting;
-using System.Drawing;
-using System.Drawing.Imaging;
+using QuestPDF;
 
 namespace WebApplicationScheveCMS.Services
 {
@@ -18,66 +17,74 @@ namespace WebApplicationScheveCMS.Services
             _env = env;
         }
 
-        public byte[] GenerateInvoicePdf(Student student, Invoice invoice, string templatePath)
+        public byte[] GenerateInvoicePdf(Student student, Invoice invoice, string templateImagePath)
         {
             QuestPDF.Settings.License = LicenseType.Community;
-            
+
             return Document.Create(container =>
             {
-                // Load the uploaded PDF template from a file and render it to an image
-                using (var pdfDocument = PdfiumViewer.PdfDocument.Load(templatePath))
+                container.Page(page =>
                 {
-                    var page = pdfDocument.Render(0, 300, 300, false);
-                    using (var stream = new MemoryStream())
+                    page.Size(PageSizes.A4);
+                    page.Margin(0); // Remove default margins for precise positioning
+
+                    page.Content().Layers(layers =>
                     {
-                        page.Save(stream, ImageFormat.Png);
-                        container.Page(page =>
+                        // Background layer - the template image
+                        if (File.Exists(templateImagePath))
                         {
-                            page.Size(PageSizes.A4);
-                            page.Margin(0);
-                            page.PageColor(Colors.White);
-                            page.DefaultTextStyle(x => x.FontSize(10));
+                            layers.Layer().Image(templateImagePath);
+                        }
 
-                            page.Canvas(canvas =>
-                            {
-                                // Draw the PDF page as a background image
-                                canvas.DrawImage(stream.ToArray(), PageSizes.A4.Width, PageSizes.A4.Height);
+                        // Text overlay layer
+                        layers.Layer().Column(column =>
+                        {
+                            // Student Name
+                            column.Item().PaddingTop(150).PaddingLeft(400).MaxHeight(15)
+                                .AlignLeft().Text(student.Name ?? "").FontSize(10);
 
-                                // Dynamic data placement
-                                var textStyle = TextStyle.Default.FontSize(12).FontColor(Colors.Black);
-                                var dateStyle = TextStyle.Default.FontSize(12).FontColor(Colors.Black);
+                            // Student Address  
+                            column.Item().PaddingTop(165).PaddingLeft(400).MaxHeight(15)
+                                .AlignLeft().Text(student.Address ?? "").FontSize(10);
 
-                                // Place student data
-                                canvas.Translate(420, 150)
-                                    .Text($"Aan: {student.Name}")
-                                    .Style(textStyle);
-                                canvas.Translate(420, 165)
-                                    .Text(student.Address)
-                                    .Style(textStyle);
-                                
-                                // Place invoice data
-                                canvas.Translate(420, 195)
-                                    .Text($"Datum: {invoice.Date:dd-MM-yyyy}")
-                                    .Style(dateStyle);
-                                canvas.Translate(100, 250)
-                                    .Text(invoice.Description)
-                                    .Style(textStyle);
+                            // Invoice ID
+                            column.Item().PaddingTop(195).PaddingLeft(400).MaxHeight(15)
+                                .AlignLeft().Text(invoice.Id?.ToString() ?? "").FontSize(10);
 
-                                // Place invoice totals
-                                canvas.Translate(450, 400)
-                                    .Text($"{invoice.AmountTotal / (1 + invoice.VAT / 100):C}")
-                                    .Style(textStyle);
-                                canvas.Translate(450, 420)
-                                    .Text($"{invoice.AmountTotal - (invoice.AmountTotal / (1 + invoice.VAT / 100)):C}")
-                                    .Style(textStyle);
-                                canvas.Translate(450, 440)
-                                    .Text($"{invoice.AmountTotal:C}")
-                                    .Style(textStyle);
+                            // Invoice Date
+                            column.Item().PaddingTop(210).PaddingLeft(400).MaxHeight(15)
+                                .AlignLeft().Text(invoice.Date.ToString("dd-MM-yyyy")).FontSize(10);
 
-                            });
+                            // Invoice Description
+                            column.Item().PaddingTop(315).PaddingLeft(100).MaxHeight(15)
+                                .AlignLeft().Text(invoice.Description ?? "").FontSize(10);
+
+                            // Calculate amounts
+                            var baseAmount = invoice.AmountTotal / (1 + invoice.VAT / 100);
+                            var vatAmount = invoice.AmountTotal - baseAmount;
+
+                            // Base Amount (Subtotal)
+                            column.Item().PaddingTop(400).PaddingLeft(500).MaxHeight(15)
+                                .AlignLeft().Text($"€{baseAmount:N2}").FontSize(10).SemiBold();
+
+                            // VAT Amount
+                            column.Item().PaddingTop(415).PaddingLeft(500).MaxHeight(15)
+                                .AlignLeft().Text($"€{vatAmount:N2}").FontSize(10).SemiBold();
+
+                            // Total Amount
+                            column.Item().PaddingTop(430).PaddingLeft(500).MaxHeight(15)
+                                .AlignLeft().Text($"€{invoice.AmountTotal:N2}").FontSize(10).SemiBold();
+
+                            // Payment Note
+                            column.Item().PaddingTop(500).PaddingLeft(100).MaxHeight(15)
+                                .AlignLeft().Text("Dit bedrag wordt automatisch geïncasseerd omstreeks 11-10-2024.").FontSize(10);
+
+                            // Contact Info
+                            column.Item().PaddingTop(600).PaddingLeft(100).MaxHeight(15)
+                                .AlignLeft().Text($"Contact: {student.Email}").FontSize(10);
                         });
-                    }
-                }
+                    });
+                });
             }).GeneratePdf();
         }
     }
