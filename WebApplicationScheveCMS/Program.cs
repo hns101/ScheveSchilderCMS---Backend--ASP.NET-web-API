@@ -122,6 +122,7 @@ builder.Services.AddSwaggerGen(options =>
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.AddDebug();
+builder.Logging.SetMinimumLevel(LogLevel.Debug); // More detailed logging
 
 var app = builder.Build();
 
