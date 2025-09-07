@@ -6,5 +6,45 @@ namespace WebApplicationScheveCMS.Models
         public string DatabaseName { get; set; } = null!;
         public string StudentsCollectionName { get; set; } = null!;
         public string InvoicesCollectionName { get; set; } = null!;
+        public string SystemSettingsCollectionName { get; set; } = "SystemSettings";
+        public string DefaultInvoiceTemplatePath { get; set; } = "";
+        public string FileStoragePath { get; set; } = "Files";
+        public long MaxFileUploadSize { get; set; } = 5 * 1024 * 1024; // 5MB
+    }
+
+    public class SystemSettings
+    {
+        public string? Id { get; set; }
+        public string? DefaultInvoiceTemplatePath { get; set; }
+        public DateTime LastUpdated { get; set; } = DateTime.Now;
+        public string UpdatedBy { get; set; } = "System";
+    }
+
+    public class ApiResponse<T>
+    {
+        public bool Success { get; set; }
+        public T? Data { get; set; }
+        public string? Message { get; set; }
+        public List<string>? Errors { get; set; }
+
+        public static ApiResponse<T> SuccessResult(T data, string? message = null)
+        {
+            return new ApiResponse<T>
+            {
+                Success = true,
+                Data = data,
+                Message = message
+            };
+        }
+
+        public static ApiResponse<T> ErrorResult(string message, List<string>? errors = null)
+        {
+            return new ApiResponse<T>
+            {
+                Success = false,
+                Message = message,
+                Errors = errors
+            };
+        }
     }
 }
