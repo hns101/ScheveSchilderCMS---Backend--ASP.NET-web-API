@@ -36,8 +36,8 @@ namespace WebApplicationScheveCMS.Services
                             layers.Layer().Image(templateImagePath);
                         }
 
-                        // Text overlay layer
-                        layers.Layer().Column(column =>
+                        // Text overlay layer (marked as primary)
+                        layers.PrimaryLayer().Column(column =>
                         {
                             // Student Name
                             column.Item().PaddingTop(150).PaddingLeft(400).MaxHeight(15)
