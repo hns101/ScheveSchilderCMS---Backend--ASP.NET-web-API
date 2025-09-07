@@ -3,6 +3,9 @@ using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
 using WebApplicationScheveCMS.Models;
 using System.IO;
+using Microsoft.AspNetCore.Hosting;
+using System.Drawing;
+using System.Drawing.Imaging;
 
 namespace WebApplicationScheveCMS.Services
 {
@@ -15,76 +18,66 @@ namespace WebApplicationScheveCMS.Services
             _env = env;
         }
 
-        public byte[] GenerateInvoicePdf(Student student, Invoice invoice)
+        public byte[] GenerateInvoicePdf(Student student, Invoice invoice, string templatePath)
         {
-            // Set QuestPDF license type to Community (required even for free use)
             QuestPDF.Settings.License = LicenseType.Community;
             
             return Document.Create(container =>
             {
-                container.Page(page =>
+                // Load the uploaded PDF template from a file and render it to an image
+                using (var pdfDocument = PdfiumViewer.PdfDocument.Load(templatePath))
                 {
-                    page.Size(PageSizes.A4);
-                    page.Margin(30);
-                    page.PageColor(Colors.White);
-                    page.DefaultTextStyle(x => x.FontSize(10));
-
-                    page.Header()
-                        .Row(row =>
+                    var page = pdfDocument.Render(0, 300, 300, false);
+                    using (var stream = new MemoryStream())
+                    {
+                        page.Save(stream, ImageFormat.Png);
+                        container.Page(page =>
                         {
-                            row.RelativeColumn().Column(column =>
-                            {
-                                // Placeholder for logo, to be added later
-                                // This section is now empty as requested
-                            });
+                            page.Size(PageSizes.A4);
+                            page.Margin(0);
+                            page.PageColor(Colors.White);
+                            page.DefaultTextStyle(x => x.FontSize(10));
 
-                            row.RelativeColumn().AlignRight().Column(column =>
+                            page.Canvas(canvas =>
                             {
-                                column.Item().Text($"Factuur: {invoice.Id}").SemiBold().FontSize(18).FontColor(Colors.Blue.Darken2);
-                                column.Item().PaddingTop(5).Text($"Aan: {student.Name}");
-                                column.Item().Text(student.Address);
-                                column.Item().Text($"Datum: {invoice.Date:dd-MM-yyyy}");
-                            });
-                        });
+                                // Draw the PDF page as a background image
+                                canvas.DrawImage(stream.ToArray(), PageSizes.A4.Width, PageSizes.A4.Height);
 
-                    page.Content()
-                        .PaddingTop(10)
-                        .Column(column =>
-                        {
-                            column.Spacing(10);
-                            column.Item().Text("Omschrijving").SemiBold();
-                            column.Item().Text(invoice.Description);
+                                // Dynamic data placement
+                                var textStyle = TextStyle.Default.FontSize(12).FontColor(Colors.Black);
+                                var dateStyle = TextStyle.Default.FontSize(12).FontColor(Colors.Black);
 
-                            column.Item().PaddingTop(20).Table(table =>
-                            {
-                                table.ColumnsDefinition(columns =>
-                                {
-                                    columns.RelativeColumn(3);
-                                    columns.RelativeColumn();
-                                });
+                                // Place student data
+                                canvas.Translate(420, 150)
+                                    .Text($"Aan: {student.Name}")
+                                    .Style(textStyle);
+                                canvas.Translate(420, 165)
+                                    .Text(student.Address)
+                                    .Style(textStyle);
                                 
-                                table.Cell().Text("Totaal Excl BTW").SemiBold();
-                                table.Cell().AlignRight().Text($"{invoice.AmountTotal / (1 + invoice.VAT / 100):C}");
+                                // Place invoice data
+                                canvas.Translate(420, 195)
+                                    .Text($"Datum: {invoice.Date:dd-MM-yyyy}")
+                                    .Style(dateStyle);
+                                canvas.Translate(100, 250)
+                                    .Text(invoice.Description)
+                                    .Style(textStyle);
 
-                                table.Cell().Text($"BTW {invoice.VAT}%").SemiBold();
-                                table.Cell().AlignRight().Text($"{invoice.AmountTotal - (invoice.AmountTotal / (1 + invoice.VAT / 100)):C}");
+                                // Place invoice totals
+                                canvas.Translate(450, 400)
+                                    .Text($"{invoice.AmountTotal / (1 + invoice.VAT / 100):C}")
+                                    .Style(textStyle);
+                                canvas.Translate(450, 420)
+                                    .Text($"{invoice.AmountTotal - (invoice.AmountTotal / (1 + invoice.VAT / 100)):C}")
+                                    .Style(textStyle);
+                                canvas.Translate(450, 440)
+                                    .Text($"{invoice.AmountTotal:C}")
+                                    .Style(textStyle);
 
-                                table.Cell().Text("Totaal Incl BTW").SemiBold();
-                                table.Cell().AlignRight().Text($"{invoice.AmountTotal:C}");
                             });
-
-                            column.Item().PaddingTop(20).Text($"Dit bedrag wordt automatisch geïncasseerd omstreeks {invoice.Date:dd-MM-yyyy}.");
                         });
-
-                    page.Footer()
-                        .AlignCenter()
-                        .PaddingTop(20)
-                        .Text(x =>
-                        {
-                            x.Span("Contact: ").SemiBold();
-                            x.Span(student.Email);
-                        });
-                });
+                    }
+                }
             }).GeneratePdf();
         }
     }

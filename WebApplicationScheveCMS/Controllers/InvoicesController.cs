@@ -8,8 +8,10 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
 using System.Text.Json;
-using QuestPDF.Infrastructure;
+using System.Text.Json.Nodes;
 
 namespace WebApplicationScheveCMS.Controllers
 {
@@ -150,6 +152,12 @@ namespace WebApplicationScheveCMS.Controllers
 
             var generatedInvoices = new List<Invoice>();
 
+            var defaultTemplatePath = _configuration["StudentDatabaseSettings:DefaultInvoiceTemplatePath"];
+            if (string.IsNullOrEmpty(defaultTemplatePath) || !System.IO.File.Exists(defaultTemplatePath))
+            {
+                return StatusCode(500, "Default invoice template is not configured or not found.");
+            }
+
             foreach (var studentId in request.StudentIds)
             {
                 try
@@ -171,7 +179,7 @@ namespace WebApplicationScheveCMS.Controllers
                         Description = request.Description
                     };
                     
-                    var pdfBytes = _pdfService.GenerateInvoicePdf(student, newInvoice);
+                    var pdfBytes = _pdfService.GenerateInvoicePdf(student, newInvoice, defaultTemplatePath);
                     
                     var fileName = $"Factuur_{Guid.NewGuid()}.pdf";
 
@@ -183,7 +191,6 @@ namespace WebApplicationScheveCMS.Controllers
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, $"Error generating invoice for student ID: {studentId}.");
-                    // Continue to process other students even if one fails
                 }
             }
 
@@ -219,10 +226,9 @@ namespace WebApplicationScheveCMS.Controllers
                 // Read and update the appsettings.json file
                 var appSettingsPath = Path.Combine(_env.ContentRootPath, "appsettings.json");
                 var json = await System.IO.File.ReadAllTextAsync(appSettingsPath);
-                var jsonObj = JsonDocument.Parse(json).RootElement.Clone();
+                var jsonObj = JsonNode.Parse(json) as JsonObject;
                 
-                // Update the JSON object
-                if (jsonObj.TryGetProperty("StudentDatabaseSettings", out var studentSettingsElement) && studentSettingsElement.ValueKind == JsonValueKind.Object)
+                if (jsonObj != null && jsonObj.ContainsKey("StudentDatabaseSettings"))
                 {
                     var newJsonObj = (System.Text.Json.Nodes.JsonObject)System.Text.Json.Nodes.JsonNode.Parse(jsonObj.ToString()!)!;
                     newJsonObj["StudentDatabaseSettings"]!["DefaultInvoiceTemplatePath"] = filePath;
@@ -287,8 +293,15 @@ namespace WebApplicationScheveCMS.Controllers
                     VAT = 21.00M,
                     Description = "Dit is een voorbeeld van de factuur. De tekst is bewerkbaar."
                 };
+                
+                var defaultTemplatePath = _configuration["StudentDatabaseSettings:DefaultInvoiceTemplatePath"];
 
-                var pdfBytes = _pdfService.GenerateInvoicePdf(dummyStudent, dummyInvoice);
+                if (string.IsNullOrEmpty(defaultTemplatePath) || !System.IO.File.Exists(defaultTemplatePath))
+                {
+                    return NotFound("Default invoice template is not configured or not found.");
+                }
+
+                var pdfBytes = _pdfService.GenerateInvoicePdf(dummyStudent, dummyInvoice, defaultTemplatePath);
                 var fileName = "preview.pdf";
                 
                 return File(pdfBytes, "application/pdf", fileName);

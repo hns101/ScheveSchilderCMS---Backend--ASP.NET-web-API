@@ -13,6 +13,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.AspNetCore.Hosting;
 using QuestPDF.Infrastructure; // Added this using statement
+using System.IO;
+using System.Drawing;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -52,7 +54,7 @@ builder.Services.AddCors(options =>
 
 // Add services to the container.
 builder.Services.AddControllers()
-    .AddJsonOptions(options =>
+    .AddJsonOptions(options => // Configure JSON serialization to camelCase for API output
     {
         options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
     });
@@ -86,8 +88,6 @@ else
 
 app.UseCors("AllowFrontend");
 app.UseStaticFiles();
-
-app.UseAuthorization();
 
 app.MapControllers();
 
