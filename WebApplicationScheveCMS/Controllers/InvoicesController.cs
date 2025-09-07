@@ -10,8 +10,10 @@ using System;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
-using System.Text.Json;
-using System.Text.Json.Nodes;
+using Microsoft.Extensions.Options;
+using System.ComponentModel.DataAnnotations;
+using MongoDB.Bson;
+using ValidationResult = WebApplicationScheveCMS.Models.ValidationResult;
 
 namespace WebApplicationScheveCMS.Controllers
 {
@@ -21,91 +23,105 @@ namespace WebApplicationScheveCMS.Controllers
     {
         private readonly InvoiceService _invoiceService;
         private readonly StudentService _studentService;
-        private readonly PdfService _pdfService;
-        private readonly FileService _fileService;
+        private readonly IPdfService _pdfService;
+        private readonly IFileService _fileService;
+        private readonly SystemSettingsService _systemSettingsService;
         private readonly IWebHostEnvironment _env;
         private readonly ILogger<InvoicesController> _logger;
-        private readonly IConfiguration _configuration;
+        private readonly StudentDatabaseSettings _settings;
 
         // Allowed image file extensions
         private readonly string[] _allowedImageExtensions = { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff" };
-        private const long MaxFileSize = 5 * 1024 * 1024; // 5MB
 
         public InvoicesController(
             InvoiceService invoiceService, 
             StudentService studentService, 
-            PdfService pdfService, 
-            FileService fileService,
+            IPdfService pdfService, 
+            IFileService fileService,
+            SystemSettingsService systemSettingsService,
             IWebHostEnvironment env,
             ILogger<InvoicesController> logger,
-            IConfiguration configuration)
+            IOptions<StudentDatabaseSettings> settings)
         {
             _invoiceService = invoiceService;
             _studentService = studentService;
             _pdfService = pdfService;
             _fileService = fileService;
+            _systemSettingsService = systemSettingsService;
             _env = env;
             _logger = logger;
-            _configuration = configuration;
+            _settings = settings.Value;
         }
 
         // GET: api/invoices
         [HttpGet]
-        public async Task<ActionResult<List<Invoice>>> Get()
+        public async Task<ActionResult<ApiResponse<List<Invoice>>>> Get()
         {
             try
             {
                 var invoices = await _invoiceService.GetAsync();
-                return Ok(invoices);
+                _logger.LogInformation("Retrieved {Count} invoices", invoices.Count);
+                
+                return Ok(ApiResponse<List<Invoice>>.SuccessResult(invoices, $"Retrieved {invoices.Count} invoices"));
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting all invoices");
-                return StatusCode(500, "Internal server error");
+                return StatusCode(500, ApiResponse<List<Invoice>>.ErrorResult("Internal server error"));
             }
         }
 
         // GET: api/invoices/{id}
         [HttpGet("{id}")]
-        public async Task<ActionResult<Invoice>> Get(string id)
+        public async Task<ActionResult<ApiResponse<Invoice>>> Get(string id)
         {
             try
             {
+                if (!IsValidObjectId(id))
+                {
+                    return BadRequest(ApiResponse<Invoice>.ErrorResult("Invalid invoice ID format"));
+                }
+
                 var invoice = await _invoiceService.GetAsync(id);
 
                 if (invoice is null)
                 {
-                    return NotFound($"Invoice with ID '{id}' not found");
+                    return NotFound(ApiResponse<Invoice>.ErrorResult($"Invoice with ID '{id}' not found"));
                 }
 
-                return Ok(invoice);
+                return Ok(ApiResponse<Invoice>.SuccessResult(invoice));
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting invoice with ID: {Id}", id);
-                return StatusCode(500, "Internal server error");
+                return StatusCode(500, ApiResponse<Invoice>.ErrorResult("Internal server error"));
             }
         }
         
         // DELETE: api/invoices/{id}
         [HttpDelete("{id}")]
-        public async Task<IActionResult> Delete(string id)
+        public async Task<ActionResult<ApiResponse<object>>> Delete(string id)
         {
             try
             {
+                if (!IsValidObjectId(id))
+                {
+                    return BadRequest(ApiResponse<object>.ErrorResult("Invalid invoice ID format"));
+                }
+
                 var invoice = await _invoiceService.GetAsync(id);
 
                 if (invoice is null)
                 {
-                    return NotFound($"Invoice with ID '{id}' not found");
+                    return NotFound(ApiResponse<object>.ErrorResult($"Invoice with ID '{id}' not found"));
                 }
 
                 // Clean up associated PDF file
-                if (!string.IsNullOrEmpty(invoice.InvoicePdfPath) && System.IO.File.Exists(invoice.InvoicePdfPath))
+                if (!string.IsNullOrEmpty(invoice.InvoicePdfPath))
                 {
                     try
                     {
-                        System.IO.File.Delete(invoice.InvoicePdfPath);
+                        _fileService.DeleteFile(invoice.InvoicePdfPath);
                     }
                     catch (Exception fileEx)
                     {
@@ -114,12 +130,14 @@ namespace WebApplicationScheveCMS.Controllers
                 }
 
                 await _invoiceService.RemoveAsync(id);
-                return NoContent();
+                _logger.LogInformation("Invoice deleted successfully: {InvoiceId}", id);
+                
+                return Ok(ApiResponse<object>.SuccessResult(null, "Invoice deleted successfully"));
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error deleting invoice with ID: {Id}", id);
-                return StatusCode(500, "Internal server error");
+                return StatusCode(500, ApiResponse<object>.ErrorResult("Internal server error"));
             }
         }
 
@@ -129,6 +147,11 @@ namespace WebApplicationScheveCMS.Controllers
         {
             try
             {
+                if (!IsValidObjectId(id))
+                {
+                    return BadRequest("Invalid invoice ID format");
+                }
+
                 var invoice = await _invoiceService.GetAsync(id);
                 if (invoice == null)
                 {
@@ -140,7 +163,7 @@ namespace WebApplicationScheveCMS.Controllers
                     return NotFound("PDF file path not found for this invoice");
                 }
 
-                if (!System.IO.File.Exists(invoice.InvoicePdfPath))
+                if (!_fileService.FileExists(invoice.InvoicePdfPath))
                 {
                     return NotFound("PDF file not found on server");
                 }
@@ -159,7 +182,7 @@ namespace WebApplicationScheveCMS.Controllers
 
         // POST: api/invoices/batch-generate
         [HttpPost("batch-generate")]
-        public async Task<IActionResult> BatchGenerate(BatchInvoiceRequest request)
+        public async Task<ActionResult<ApiResponse<BatchGenerationResult>>> BatchGenerate([FromBody] BatchInvoiceRequest request)
         {
             try
             {
@@ -167,13 +190,15 @@ namespace WebApplicationScheveCMS.Controllers
                 var validationResult = ValidateBatchRequest(request);
                 if (!validationResult.IsValid)
                 {
-                    return BadRequest(validationResult.ErrorMessage);
+                    return BadRequest(ApiResponse<BatchGenerationResult>.ErrorResult(validationResult.ErrorMessage, validationResult.Errors));
                 }
 
-                var defaultTemplatePath = _configuration["StudentDatabaseSettings:DefaultInvoiceTemplatePath"];
-                if (string.IsNullOrEmpty(defaultTemplatePath) || !System.IO.File.Exists(defaultTemplatePath))
+                var systemSettings = await _systemSettingsService.GetSettingsAsync();
+                var defaultTemplatePath = systemSettings?.DefaultInvoiceTemplatePath;
+
+                if (string.IsNullOrEmpty(defaultTemplatePath) || !_fileService.FileExists(defaultTemplatePath))
                 {
-                    return BadRequest("Default invoice template is not configured or file not found");
+                    return BadRequest(ApiResponse<BatchGenerationResult>.ErrorResult("Default invoice template is not configured or file not found"));
                 }
 
                 var results = new BatchGenerationResult
@@ -182,10 +207,19 @@ namespace WebApplicationScheveCMS.Controllers
                     Errors = new List<string>()
                 };
 
+                _logger.LogInformation("Starting batch generation for {Count} students", request.StudentIds.Count);
+
                 foreach (var studentId in request.StudentIds)
                 {
                     try
                     {
+                        if (!IsValidObjectId(studentId))
+                        {
+                            var errorMsg = $"Invalid student ID format: '{studentId}'";
+                            results.Errors.Add(errorMsg);
+                            continue;
+                        }
+
                         var student = await _studentService.GetAsync(studentId);
 
                         if (student is null)
@@ -225,21 +259,25 @@ namespace WebApplicationScheveCMS.Controllers
 
                 if (!results.SuccessfulInvoices.Any())
                 {
-                    return StatusCode(500, new { message = "No invoices were successfully generated", errors = results.Errors });
+                    return StatusCode(500, ApiResponse<BatchGenerationResult>.ErrorResult("No invoices were successfully generated", results.Errors));
                 }
 
-                return Ok(results);
+                _logger.LogInformation("Batch generation completed. Success: {SuccessCount}, Errors: {ErrorCount}", 
+                    results.SuccessCount, results.ErrorCount);
+
+                return Ok(ApiResponse<BatchGenerationResult>.SuccessResult(results, 
+                    $"Generated {results.SuccessCount} invoices successfully"));
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in batch invoice generation");
-                return StatusCode(500, "Internal server error during batch generation");
+                return StatusCode(500, ApiResponse<BatchGenerationResult>.ErrorResult("Internal server error during batch generation"));
             }
         }
         
         // POST: api/invoices/template - Upload invoice template (image)
         [HttpPost("template")]
-        public async Task<IActionResult> UploadInvoiceTemplate(IFormFile file)
+        public async Task<ActionResult<ApiResponse<TemplateUploadResult>>> UploadInvoiceTemplate(IFormFile file)
         {
             try
             {
@@ -247,7 +285,7 @@ namespace WebApplicationScheveCMS.Controllers
                 var validationResult = ValidateImageFile(file);
                 if (!validationResult.IsValid)
                 {
-                    return BadRequest(validationResult.ErrorMessage);
+                    return BadRequest(ApiResponse<TemplateUploadResult>.ErrorResult(validationResult.ErrorMessage, validationResult.Errors));
                 }
 
                 // Delete the old template if it exists
@@ -257,43 +295,45 @@ namespace WebApplicationScheveCMS.Controllers
                 var fileName = $"invoice_template{Path.GetExtension(file.FileName).ToLowerInvariant()}";
                 var fileBytes = await ReadAllBytesAsync(file);
                 
-                // Use existing FileService.SavePdf method (assuming it can save any file type)
-                // Or create templates directory and save manually
-                var filePath = SaveTemplateFile(fileName, fileBytes);
+                var filePath = _fileService.SaveTemplateFile(fileName, fileBytes);
 
-                // Update configuration
-                await UpdateTemplatePathInConfig(filePath);
+                // Update system settings in database
+                await _systemSettingsService.UpdateTemplatePathAsync(filePath);
                 
                 _logger.LogInformation("Invoice template updated successfully: {FilePath}", filePath);
+
+                var result = new TemplateUploadResult
+                {
+                    Message = "Template uploaded successfully",
+                    FilePath = filePath,
+                    FileName = fileName,
+                    FileSize = fileBytes.Length
+                };
                 
-                return Ok(new { 
-                    message = "Template uploaded successfully", 
-                    filePath,
-                    fileName = fileName,
-                    fileSize = fileBytes.Length
-                });
+                return Ok(ApiResponse<TemplateUploadResult>.SuccessResult(result, "Template uploaded successfully"));
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error uploading invoice template");
-                return StatusCode(500, "Internal server error during template upload");
+                return StatusCode(500, ApiResponse<TemplateUploadResult>.ErrorResult("Internal server error during template upload"));
             }
         }
         
         // GET: api/invoices/template - Get the default template image for viewing
         [HttpGet("template")]
-        public IActionResult GetInvoiceTemplate()
+        public async Task<IActionResult> GetInvoiceTemplate()
         {
             try
             {
-                var filePath = _configuration["StudentDatabaseSettings:DefaultInvoiceTemplatePath"];
+                var systemSettings = await _systemSettingsService.GetSettingsAsync();
+                var filePath = systemSettings?.DefaultInvoiceTemplatePath;
                 
-                if (string.IsNullOrEmpty(filePath) || !System.IO.File.Exists(filePath))
+                if (string.IsNullOrEmpty(filePath) || !_fileService.FileExists(filePath))
                 {
                     return NotFound("Default invoice template not found");
                 }
 
-                var fileBytes = System.IO.File.ReadAllBytes(filePath);
+                var fileBytes = await System.IO.File.ReadAllBytesAsync(filePath);
                 var fileName = Path.GetFileName(filePath);
                 var extension = Path.GetExtension(filePath).ToLowerInvariant();
                 
@@ -319,13 +359,14 @@ namespace WebApplicationScheveCMS.Controllers
 
         // GET: api/invoices/template/preview - Generate a preview of the template with dummy data
         [HttpGet("template/preview")]
-        public IActionResult GetInvoiceTemplatePreview()
+        public async Task<IActionResult> GetInvoiceTemplatePreview()
         {
             try
             {
-                var defaultTemplatePath = _configuration["StudentDatabaseSettings:DefaultInvoiceTemplatePath"];
+                var systemSettings = await _systemSettingsService.GetSettingsAsync();
+                var defaultTemplatePath = systemSettings?.DefaultInvoiceTemplatePath;
 
-                if (string.IsNullOrEmpty(defaultTemplatePath) || !System.IO.File.Exists(defaultTemplatePath))
+                if (string.IsNullOrEmpty(defaultTemplatePath) || !_fileService.FileExists(defaultTemplatePath))
                 {
                     return NotFound("Default invoice template is not configured or not found");
                 }
@@ -347,51 +388,44 @@ namespace WebApplicationScheveCMS.Controllers
 
         // GET: api/invoices/template/info - Get template information
         [HttpGet("template/info")]
-        public IActionResult GetTemplateInfo()
+        public async Task<ActionResult<ApiResponse<TemplateInfo>>> GetTemplateInfo()
         {
             try
             {
-                var filePath = _configuration["StudentDatabaseSettings:DefaultInvoiceTemplatePath"];
+                var systemSettings = await _systemSettingsService.GetSettingsAsync();
+                var filePath = systemSettings?.DefaultInvoiceTemplatePath;
                 
-                if (string.IsNullOrEmpty(filePath) || !System.IO.File.Exists(filePath))
+                if (string.IsNullOrEmpty(filePath) || !_fileService.FileExists(filePath))
                 {
-                    return Ok(new { hasTemplate = false, message = "No template configured" });
+                    var noTemplateInfo = new TemplateInfo
+                    {
+                        HasTemplate = false,
+                        Message = "No template configured"
+                    };
+                    return Ok(ApiResponse<TemplateInfo>.SuccessResult(noTemplateInfo));
                 }
 
-                var fileInfo = new FileInfo(filePath);
+                var fileInfo = _fileService.GetFileInfo(filePath);
                 
-                return Ok(new
+                var templateInfo = new TemplateInfo
                 {
-                    hasTemplate = true,
-                    fileName = fileInfo.Name,
-                    fileSize = fileInfo.Length,
-                    lastModified = fileInfo.LastWriteTime,
-                    extension = fileInfo.Extension
-                });
+                    HasTemplate = true,
+                    FileName = fileInfo?.Name,
+                    FileSize = fileInfo?.Length ?? 0,
+                    LastModified = fileInfo?.LastWriteTime,
+                    Extension = fileInfo?.Extension
+                };
+                
+                return Ok(ApiResponse<TemplateInfo>.SuccessResult(templateInfo));
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting template info");
-                return StatusCode(500, "Internal server error");
+                return StatusCode(500, ApiResponse<TemplateInfo>.ErrorResult("Internal server error"));
             }
         }
 
         #region Private Helper Methods
-
-        private string SaveTemplateFile(string fileName, byte[] fileBytes)
-        {
-            // Create templates directory if it doesn't exist
-            var templatesDir = Path.Combine(_env.WebRootPath ?? _env.ContentRootPath, "templates");
-            if (!Directory.Exists(templatesDir))
-            {
-                Directory.CreateDirectory(templatesDir);
-            }
-
-            var filePath = Path.Combine(templatesDir, fileName);
-            System.IO.File.WriteAllBytes(filePath, fileBytes);
-            
-            return filePath;
-        }
 
         private static async Task<byte[]> ReadAllBytesAsync(IFormFile file)
         {
@@ -402,76 +436,116 @@ namespace WebApplicationScheveCMS.Controllers
 
         private ValidationResult ValidateImageFile(IFormFile file)
         {
+            var errors = new List<string>();
+
             if (file == null || file.Length == 0)
             {
-                return new ValidationResult(false, "No file uploaded");
+                return ValidationResult.Failure("No file uploaded");
             }
 
-            if (file.Length > MaxFileSize)
+            if (file.Length > _settings.MaxFileUploadSize)
             {
-                return new ValidationResult(false, $"File size exceeds maximum allowed size of {MaxFileSize / (1024 * 1024)}MB");
+                errors.Add($"File size exceeds maximum allowed size of {_settings.MaxFileUploadSize / (1024 * 1024)}MB");
             }
 
             var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
             if (!_allowedImageExtensions.Contains(extension))
             {
-                return new ValidationResult(false, $"Invalid file type. Allowed types: {string.Join(", ", _allowedImageExtensions)}");
+                errors.Add($"Invalid file type. Allowed types: {string.Join(", ", _allowedImageExtensions)}");
             }
 
-            return new ValidationResult(true);
+            // Additional file content validation could be added here
+            if (!IsValidImageContent(file))
+            {
+                errors.Add("File content is not a valid image");
+            }
+
+            return errors.Any() ? ValidationResult.Failure(errors) : ValidationResult.Success();
         }
 
         private ValidationResult ValidateBatchRequest(BatchInvoiceRequest request)
         {
+            var errors = new List<string>();
+
             if (request?.StudentIds == null || !request.StudentIds.Any())
             {
-                return new ValidationResult(false, "No student IDs provided for batch generation");
+                errors.Add("No student IDs provided for batch generation");
             }
-
-            if (request.AmountTotal <= 0)
+            else
             {
-                return new ValidationResult(false, "Amount total must be greater than zero");
+                var invalidIds = request.StudentIds.Where(id => !IsValidObjectId(id)).ToList();
+                if (invalidIds.Any())
+                {
+                    errors.Add($"Invalid student ID format: {string.Join(", ", invalidIds)}");
+                }
             }
 
-            if (request.VAT < 0 || request.VAT > 100)
+            if (request?.AmountTotal <= 0)
             {
-                return new ValidationResult(false, "VAT must be between 0 and 100 percent");
+                errors.Add("Amount total must be greater than zero");
             }
 
-            return new ValidationResult(true);
+            if (request?.VAT < 0 || request?.VAT > 100)
+            {
+                errors.Add("VAT must be between 0 and 100 percent");
+            }
+
+            return errors.Any() ? ValidationResult.Failure(errors) : ValidationResult.Success();
         }
 
         private async Task CleanupOldTemplate()
         {
-            var oldFilePath = _configuration["StudentDatabaseSettings:DefaultInvoiceTemplatePath"];
-            if (!string.IsNullOrEmpty(oldFilePath) && System.IO.File.Exists(oldFilePath))
+            try
             {
-                try
+                var systemSettings = await _systemSettingsService.GetSettingsAsync();
+                var oldFilePath = systemSettings?.DefaultInvoiceTemplatePath;
+                
+                if (!string.IsNullOrEmpty(oldFilePath) && _fileService.FileExists(oldFilePath))
                 {
-                    await Task.Run(() => System.IO.File.Delete(oldFilePath));
+                    _fileService.DeleteFile(oldFilePath);
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Could not delete old template file: {FilePath}", oldFilePath);
-                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not cleanup old template file");
             }
         }
 
-        private async Task UpdateTemplatePathInConfig(string filePath)
+        private static bool IsValidObjectId(string id)
         {
-            var appSettingsPath = Path.Combine(_env.ContentRootPath, "appsettings.json");
-            var json = await System.IO.File.ReadAllTextAsync(appSettingsPath);
-            var jsonObj = JsonNode.Parse(json) as JsonObject;
-            
-            if (jsonObj?.ContainsKey("StudentDatabaseSettings") == true)
+            return !string.IsNullOrEmpty(id) && 
+                   id.Length == 24 && 
+                   ObjectId.TryParse(id, out _);
+        }
+
+        private static bool IsValidImageContent(IFormFile file)
+        {
+            try
             {
-                var settingsNode = jsonObj["StudentDatabaseSettings"];
-                if (settingsNode is JsonObject settingsObj)
+                // Basic image validation - you could enhance this with ImageSharp or similar
+                var validHeaders = new Dictionary<string, byte[]>
                 {
-                    settingsObj["DefaultInvoiceTemplatePath"] = filePath;
-                    var output = jsonObj.ToString();
-                    await System.IO.File.WriteAllTextAsync(appSettingsPath, output);
-                }
+                    { ".jpg", new byte[] { 0xFF, 0xD8, 0xFF } },
+                    { ".jpeg", new byte[] { 0xFF, 0xD8, 0xFF } },
+                    { ".png", new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A } },
+                    { ".gif", new byte[] { 0x47, 0x49, 0x46, 0x38 } },
+                    { ".bmp", new byte[] { 0x42, 0x4D } }
+                };
+
+                var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+                if (!validHeaders.ContainsKey(extension)) return true; // Allow other types for now
+
+                using var stream = file.OpenReadStream();
+                var header = new byte[8];
+                stream.Read(header, 0, header.Length);
+                stream.Position = 0; // Reset for potential future reads
+
+                var expectedHeader = validHeaders[extension];
+                return header.Take(expectedHeader.Length).SequenceEqual(expectedHeader);
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -500,33 +574,5 @@ namespace WebApplicationScheveCMS.Controllers
         }
 
         #endregion
-    }
-
-    public class BatchInvoiceRequest
-    {
-        public List<string> StudentIds { get; set; } = new List<string>();
-        public string? Description { get; set; }
-        public decimal AmountTotal { get; set; }
-        public decimal VAT { get; set; }
-    }
-
-    public class BatchGenerationResult
-    {
-        public List<Invoice> SuccessfulInvoices { get; set; } = new List<Invoice>();
-        public List<string> Errors { get; set; } = new List<string>();
-        public int SuccessCount => SuccessfulInvoices.Count;
-        public int ErrorCount => Errors.Count;
-    }
-
-    public class ValidationResult
-    {
-        public bool IsValid { get; }
-        public string ErrorMessage { get; }
-
-        public ValidationResult(bool isValid, string errorMessage = "")
-        {
-            IsValid = isValid;
-            ErrorMessage = errorMessage;
-        }
     }
 }
