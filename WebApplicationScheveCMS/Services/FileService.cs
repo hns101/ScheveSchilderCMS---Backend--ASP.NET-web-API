@@ -41,7 +41,9 @@ namespace WebApplicationScheveCMS.Services
                 }
 
                 var safeFileName = GetSafeFileName(fileName);
-                var folderPath = Path.Combine(_env.ContentRootPath, "Files", "Invoices");
+                
+                // Use persistent storage outside of build directories
+                var folderPath = GetPersistentDataPath("Invoices");
 
                 _logger.LogDebug("Saving PDF to folder: {FolderPath}", folderPath);
 
@@ -84,7 +86,9 @@ namespace WebApplicationScheveCMS.Services
                 }
 
                 var safeFileName = GetSafeFileName(fileName);
-                var templatesDir = Path.Combine(_env.WebRootPath ?? _env.ContentRootPath, "templates");
+                
+                // Use persistent storage for templates - this will survive rebuilds
+                var templatesDir = GetPersistentDataPath("Templates");
                 
                 _logger.LogDebug("Saving template to folder: {TemplatesDir}", templatesDir);
 
@@ -122,7 +126,9 @@ namespace WebApplicationScheveCMS.Services
                 }
 
                 var safeFileName = GetSafeFileName(file.FileName);
-                var studentFolderPath = Path.Combine(_env.ContentRootPath, "Files", "StudentDocuments", studentId);
+                
+                // Use persistent storage for student documents
+                var studentFolderPath = Path.Combine(GetPersistentDataPath("StudentDocuments"), studentId);
                 
                 _logger.LogDebug("Saving student document to folder: {StudentFolderPath}", studentFolderPath);
 
@@ -201,6 +207,34 @@ namespace WebApplicationScheveCMS.Services
                 _logger.LogWarning(ex, "Error getting file info: {FilePath}", filePath);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Gets a persistent data path that survives application rebuilds
+        /// </summary>
+        private string GetPersistentDataPath(string subfolder)
+        {
+            // Option 1: Use a folder outside the application directory (recommended)
+            var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            var persistentPath = Path.Combine(appDataPath, "ScheveCMS", "Data", subfolder);
+            
+            // Option 2: If the above doesn't work, use a folder in the parent directory
+            if (!Directory.Exists(Path.GetDirectoryName(persistentPath)!))
+            {
+                try
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(persistentPath)!);
+                }
+                catch
+                {
+                    // Fallback to a folder next to the application
+                    var fallbackPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "ScheveCMS_Data", subfolder);
+                    _logger.LogWarning("Using fallback persistent path: {FallbackPath}", fallbackPath);
+                    return Path.GetFullPath(fallbackPath);
+                }
+            }
+            
+            return persistentPath;
         }
 
         private static string GetSafeFileName(string fileName)
