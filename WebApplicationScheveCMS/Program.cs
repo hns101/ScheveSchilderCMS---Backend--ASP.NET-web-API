@@ -20,6 +20,9 @@ using WebApplicationScheveCMS.Filters;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Set QuestPDF license early
+QuestPDF.Settings.License = LicenseType.Community;
+
 // --- BSON Class Map and Convention Registration ---
 ConventionRegistry.Register("CamelCaseConvention", new ConventionPack { new CamelCaseElementNameConvention() }, t => true);
 
@@ -122,9 +125,34 @@ builder.Services.AddSwaggerGen(options =>
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.AddDebug();
-builder.Logging.SetMinimumLevel(LogLevel.Debug); // More detailed logging
+builder.Logging.SetMinimumLevel(LogLevel.Information); // Changed from Debug to Information for production
 
 var app = builder.Build();
+
+// Create necessary directories on startup
+try
+{
+    var env = app.Services.GetRequiredService<IWebHostEnvironment>();
+    var logger = app.Services.GetRequiredService<ILogger<Program>>();
+    
+    // Create Files directory structure
+    var filesDir = Path.Combine(env.ContentRootPath, "Files");
+    var invoicesDir = Path.Combine(filesDir, "Invoices");
+    var studentDocsDir = Path.Combine(filesDir, "StudentDocuments");
+    var templatesDir = Path.Combine(env.WebRootPath ?? env.ContentRootPath, "templates");
+
+    Directory.CreateDirectory(filesDir);
+    Directory.CreateDirectory(invoicesDir);
+    Directory.CreateDirectory(studentDocsDir);
+    Directory.CreateDirectory(templatesDir);
+    
+    logger.LogInformation("Created necessary directories on startup");
+}
+catch (Exception ex)
+{
+    var logger = app.Services.GetRequiredService<ILogger<Program>>();
+    logger.LogError(ex, "Failed to create directories on startup");
+}
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -135,6 +163,9 @@ if (app.Environment.IsDevelopment())
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "Student CMS API V1");
         c.RoutePrefix = "swagger";
     });
+    
+    // Enable detailed error pages in development
+    app.UseDeveloperExceptionPage();
 }
 else
 {
