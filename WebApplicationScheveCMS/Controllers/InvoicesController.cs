@@ -312,10 +312,13 @@ namespace WebApplicationScheveCMS.Controllers
                             continue;
                         }
 
-                        // Save PDF file with enhanced error handling
+                        // Save PDF file with enhanced error handling and FIXED filename generation
                         try
                         {
-                            var fileName = $"Invoice_{student.StudentNumber}_{DateTime.Now:yyyyMMdd}_{Guid.NewGuid():N[..8]}.pdf";
+                            // FIXED: Proper GUID formatting
+                            var guidString = Guid.NewGuid().ToString("N")[..8];
+                            var fileName = $"Invoice_{student.StudentNumber}_{DateTime.Now:yyyyMMdd}_{guidString}.pdf";
+                            
                             _logger.LogDebug("Saving PDF file: {FileName}", fileName);
                             newInvoice.InvoicePdfPath = _fileService.SavePdf(fileName, pdfBytes);
                             _logger.LogDebug("PDF saved to: {PdfPath}", newInvoice.InvoicePdfPath);
