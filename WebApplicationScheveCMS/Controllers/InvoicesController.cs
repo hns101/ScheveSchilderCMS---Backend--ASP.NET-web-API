@@ -186,19 +186,58 @@ namespace WebApplicationScheveCMS.Controllers
         {
             try
             {
-                // Validate request
+                _logger.LogInformation("Starting batch generation request with {StudentCount} students", request?.StudentIds?.Count ?? 0);
+
+                // Enhanced validation with detailed logging
                 var validationResult = ValidateBatchRequest(request);
                 if (!validationResult.IsValid)
                 {
+                    _logger.LogWarning("Batch request validation failed: {ErrorMessage}", validationResult.ErrorMessage);
                     return BadRequest(ApiResponse<BatchGenerationResult>.ErrorResult(validationResult.ErrorMessage, validationResult.Errors));
                 }
 
-                var systemSettings = await _systemSettingsService.GetSettingsAsync();
-                var defaultTemplatePath = systemSettings?.DefaultInvoiceTemplatePath;
-
-                if (string.IsNullOrEmpty(defaultTemplatePath) || !_fileService.FileExists(defaultTemplatePath))
+                // Check system settings with enhanced error handling
+                SystemSettings? systemSettings = null;
+                try
                 {
-                    return BadRequest(ApiResponse<BatchGenerationResult>.ErrorResult("Default invoice template is not configured or file not found"));
+                    systemSettings = await _systemSettingsService.GetSettingsAsync();
+                    _logger.LogInformation("Retrieved system settings: {HasSettings}", systemSettings != null);
+                }
+                catch (Exception settingsEx)
+                {
+                    _logger.LogError(settingsEx, "Failed to retrieve system settings");
+                    return StatusCode(500, ApiResponse<BatchGenerationResult>.ErrorResult("Failed to retrieve system settings"));
+                }
+
+                var defaultTemplatePath = systemSettings?.DefaultInvoiceTemplatePath;
+                _logger.LogInformation("Template path from settings: {TemplatePath}", defaultTemplatePath ?? "NULL");
+
+                if (string.IsNullOrEmpty(defaultTemplatePath))
+                {
+                    _logger.LogWarning("No default invoice template path configured in system settings");
+                    return BadRequest(ApiResponse<BatchGenerationResult>.ErrorResult("Default invoice template is not configured. Please upload a template in Settings."));
+                }
+
+                if (!_fileService.FileExists(defaultTemplatePath))
+                {
+                    _logger.LogWarning("Template file does not exist at path: {TemplatePath}", defaultTemplatePath);
+                    return BadRequest(ApiResponse<BatchGenerationResult>.ErrorResult($"Default invoice template file not found at path: {defaultTemplatePath}"));
+                }
+
+                // Ensure directories exist
+                try
+                {
+                    var invoicesDir = Path.Combine(_env.ContentRootPath, "Files", "Invoices");
+                    if (!Directory.Exists(invoicesDir))
+                    {
+                        Directory.CreateDirectory(invoicesDir);
+                        _logger.LogInformation("Created invoices directory: {InvoicesDir}", invoicesDir);
+                    }
+                }
+                catch (Exception dirEx)
+                {
+                    _logger.LogError(dirEx, "Failed to create invoices directory");
+                    return StatusCode(500, ApiResponse<BatchGenerationResult>.ErrorResult("Failed to create necessary directories"));
                 }
 
                 var results = new BatchGenerationResult
@@ -213,14 +252,29 @@ namespace WebApplicationScheveCMS.Controllers
                 {
                     try
                     {
+                        _logger.LogDebug("Processing student ID: {StudentId}", studentId);
+
                         if (!IsValidObjectId(studentId))
                         {
                             var errorMsg = $"Invalid student ID format: '{studentId}'";
+                            _logger.LogWarning(errorMsg);
                             results.Errors.Add(errorMsg);
                             continue;
                         }
 
-                        var student = await _studentService.GetAsync(studentId);
+                        // Get student with enhanced error handling
+                        Student? student = null;
+                        try
+                        {
+                            student = await _studentService.GetAsync(studentId);
+                        }
+                        catch (Exception studentEx)
+                        {
+                            var errorMsg = $"Database error retrieving student '{studentId}': {studentEx.Message}";
+                            _logger.LogError(studentEx, "Error retrieving student: {StudentId}", studentId);
+                            results.Errors.Add(errorMsg);
+                            continue;
+                        }
 
                         if (student is null)
                         {
@@ -230,6 +284,9 @@ namespace WebApplicationScheveCMS.Controllers
                             continue;
                         }
 
+                        _logger.LogDebug("Found student: {StudentName} ({StudentNumber})", student.Name, student.StudentNumber);
+
+                        // Create invoice object
                         var newInvoice = new Invoice
                         {
                             StudentId = student.Id!,
@@ -238,40 +295,97 @@ namespace WebApplicationScheveCMS.Controllers
                             VAT = request.VAT,
                             Description = request.Description ?? "Invoice"
                         };
-                        
-                        var pdfBytes = _pdfService.GenerateInvoicePdf(student, newInvoice, defaultTemplatePath);
-                        
-                        var fileName = $"Invoice_{student.StudentNumber}_{DateTime.Now:yyyyMMdd}_{Guid.NewGuid():N[..8]}.pdf";
-                        newInvoice.InvoicePdfPath = _fileService.SavePdf(fileName, pdfBytes);
 
-                        await _invoiceService.CreateAsync(newInvoice);
-                        results.SuccessfulInvoices.Add(newInvoice);
-                        
-                        _logger.LogInformation("Successfully generated invoice for student: {StudentId}", studentId);
+                        // Generate PDF with enhanced error handling
+                        byte[] pdfBytes;
+                        try
+                        {
+                            _logger.LogDebug("Generating PDF for student: {StudentId}", studentId);
+                            pdfBytes = _pdfService.GenerateInvoicePdf(student, newInvoice, defaultTemplatePath);
+                            _logger.LogDebug("PDF generated successfully, size: {PdfSize} bytes", pdfBytes.Length);
+                        }
+                        catch (Exception pdfEx)
+                        {
+                            var errorMsg = $"PDF generation failed for student '{student.Name}': {pdfEx.Message}";
+                            _logger.LogError(pdfEx, "Error generating PDF for student: {StudentId}", studentId);
+                            results.Errors.Add(errorMsg);
+                            continue;
+                        }
+
+                        // Save PDF file with enhanced error handling
+                        try
+                        {
+                            var fileName = $"Invoice_{student.StudentNumber}_{DateTime.Now:yyyyMMdd}_{Guid.NewGuid():N[..8]}.pdf";
+                            _logger.LogDebug("Saving PDF file: {FileName}", fileName);
+                            newInvoice.InvoicePdfPath = _fileService.SavePdf(fileName, pdfBytes);
+                            _logger.LogDebug("PDF saved to: {PdfPath}", newInvoice.InvoicePdfPath);
+                        }
+                        catch (Exception fileEx)
+                        {
+                            var errorMsg = $"Failed to save PDF for student '{student.Name}': {fileEx.Message}";
+                            _logger.LogError(fileEx, "Error saving PDF for student: {StudentId}", studentId);
+                            results.Errors.Add(errorMsg);
+                            continue;
+                        }
+
+                        // Save invoice to database with enhanced error handling
+                        try
+                        {
+                            _logger.LogDebug("Saving invoice to database for student: {StudentId}", studentId);
+                            await _invoiceService.CreateAsync(newInvoice);
+                            results.SuccessfulInvoices.Add(newInvoice);
+                            _logger.LogInformation("Successfully generated invoice {InvoiceId} for student: {StudentName}", newInvoice.Id, student.Name);
+                        }
+                        catch (Exception dbEx)
+                        {
+                            var errorMsg = $"Database error saving invoice for student '{student.Name}': {dbEx.Message}";
+                            _logger.LogError(dbEx, "Error saving invoice to database for student: {StudentId}", studentId);
+                            results.Errors.Add(errorMsg);
+                            
+                            // Clean up PDF file if database save failed
+                            try
+                            {
+                                if (!string.IsNullOrEmpty(newInvoice.InvoicePdfPath))
+                                {
+                                    _fileService.DeleteFile(newInvoice.InvoicePdfPath);
+                                }
+                            }
+                            catch (Exception cleanupEx)
+                            {
+                                _logger.LogWarning(cleanupEx, "Failed to cleanup PDF file after database error: {PdfPath}", newInvoice.InvoicePdfPath);
+                            }
+                            continue;
+                        }
                     }
                     catch (Exception ex)
                     {
-                        var errorMsg = $"Error generating invoice for student ID '{studentId}': {ex.Message}";
-                        _logger.LogError(ex, "Error generating invoice for student ID: {StudentId}", studentId);
+                        var errorMsg = $"Unexpected error processing student ID '{studentId}': {ex.Message}";
+                        _logger.LogError(ex, "Unexpected error processing student ID: {StudentId}", studentId);
                         results.Errors.Add(errorMsg);
                     }
                 }
 
-                if (!results.SuccessfulInvoices.Any())
+                if (!results.SuccessfulInvoices.Any() && results.Errors.Any())
                 {
+                    _logger.LogError("No invoices were successfully generated. Errors: {ErrorCount}", results.ErrorCount);
                     return StatusCode(500, ApiResponse<BatchGenerationResult>.ErrorResult("No invoices were successfully generated", results.Errors));
                 }
 
                 _logger.LogInformation("Batch generation completed. Success: {SuccessCount}, Errors: {ErrorCount}", 
                     results.SuccessCount, results.ErrorCount);
 
-                return Ok(ApiResponse<BatchGenerationResult>.SuccessResult(results, 
-                    $"Generated {results.SuccessCount} invoices successfully"));
+                var successMessage = $"Generated {results.SuccessCount} invoices successfully";
+                if (results.ErrorCount > 0)
+                {
+                    successMessage += $" with {results.ErrorCount} errors";
+                }
+
+                return Ok(ApiResponse<BatchGenerationResult>.SuccessResult(results, successMessage));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in batch invoice generation");
-                return StatusCode(500, ApiResponse<BatchGenerationResult>.ErrorResult("Internal server error during batch generation"));
+                _logger.LogError(ex, "Critical error in batch invoice generation");
+                return StatusCode(500, ApiResponse<BatchGenerationResult>.ErrorResult($"Internal server error during batch generation: {ex.Message}"));
             }
         }
         
@@ -463,29 +577,34 @@ namespace WebApplicationScheveCMS.Controllers
             return errors.Any() ? ValidationResult.Failure(errors) : ValidationResult.Success();
         }
 
-        private ValidationResult ValidateBatchRequest(BatchInvoiceRequest request)
+        private ValidationResult ValidateBatchRequest(BatchInvoiceRequest? request)
         {
             var errors = new List<string>();
 
-            if (request?.StudentIds == null || !request.StudentIds.Any())
+            if (request == null)
+            {
+                return ValidationResult.Failure("Request body is null or invalid");
+            }
+
+            if (request.StudentIds == null || !request.StudentIds.Any())
             {
                 errors.Add("No student IDs provided for batch generation");
             }
             else
             {
-                var invalidIds = request.StudentIds.Where(id => !IsValidObjectId(id)).ToList();
+                var invalidIds = request.StudentIds.Where(id => string.IsNullOrWhiteSpace(id) || !IsValidObjectId(id)).ToList();
                 if (invalidIds.Any())
                 {
                     errors.Add($"Invalid student ID format: {string.Join(", ", invalidIds)}");
                 }
             }
 
-            if (request?.AmountTotal <= 0)
+            if (request.AmountTotal <= 0)
             {
                 errors.Add("Amount total must be greater than zero");
             }
 
-            if (request?.VAT < 0 || request?.VAT > 100)
+            if (request.VAT < 0 || request.VAT > 100)
             {
                 errors.Add("VAT must be between 0 and 100 percent");
             }
@@ -511,7 +630,7 @@ namespace WebApplicationScheveCMS.Controllers
             }
         }
 
-        private static bool IsValidObjectId(string id)
+        private static bool IsValidObjectId(string? id)
         {
             return !string.IsNullOrEmpty(id) && 
                    id.Length == 24 && 
