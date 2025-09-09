@@ -398,12 +398,17 @@ namespace WebApplicationScheveCMS.Controllers
         {
             try
             {
+                _logger.LogInformation("Starting template upload process");
+                
                 // Validate file
                 var validationResult = ValidateImageFile(file);
                 if (!validationResult.IsValid)
                 {
+                    _logger.LogWarning("Template file validation failed: {ErrorMessage}", validationResult.ErrorMessage);
                     return BadRequest(ApiResponse<TemplateUploadResult>.ErrorResult(validationResult.ErrorMessage, validationResult.Errors));
                 }
+
+                _logger.LogInformation("File validation passed, file size: {FileSize} bytes", file.Length);
 
                 // Delete the old template if it exists
                 await CleanupOldTemplate();
@@ -412,10 +417,34 @@ namespace WebApplicationScheveCMS.Controllers
                 var fileName = $"invoice_template{Path.GetExtension(file.FileName).ToLowerInvariant()}";
                 var fileBytes = await ReadAllBytesAsync(file);
                 
+                _logger.LogInformation("Saving new template file: {FileName}", fileName);
                 var filePath = _fileService.SaveTemplateFile(fileName, fileBytes);
+                _logger.LogInformation("Template file saved to: {FilePath}", filePath);
 
                 // Update system settings in database
-                await _systemSettingsService.UpdateTemplatePathAsync(filePath);
+                _logger.LogInformation("Updating system settings with new template path");
+                try 
+                {
+                    await _systemSettingsService.UpdateTemplatePathAsync(filePath);
+                    _logger.LogInformation("System settings updated successfully with template path: {FilePath}", filePath);
+                }
+                catch (Exception settingsEx)
+                {
+                    _logger.LogError(settingsEx, "Failed to update system settings with template path: {FilePath}", filePath);
+                    
+                    // Try to clean up the uploaded file since we couldn't update the database
+                    try 
+                    {
+                        _fileService.DeleteFile(filePath);
+                        _logger.LogInformation("Cleaned up uploaded file due to settings update failure");
+                    }
+                    catch (Exception cleanupEx)
+                    {
+                        _logger.LogWarning(cleanupEx, "Failed to cleanup file after settings update failure: {FilePath}", filePath);
+                    }
+                    
+                    return StatusCode(500, ApiResponse<TemplateUploadResult>.ErrorResult("Failed to save template settings to database"));
+                }
                 
                 _logger.LogInformation("Invoice template updated successfully: {FilePath}", filePath);
 
@@ -509,11 +538,16 @@ namespace WebApplicationScheveCMS.Controllers
         {
             try
             {
+                _logger.LogInformation("Retrieving template info");
+                
                 var systemSettings = await _systemSettingsService.GetSettingsAsync();
                 var filePath = systemSettings?.DefaultInvoiceTemplatePath;
                 
+                _logger.LogInformation("System settings retrieved, template path: {FilePath}", filePath ?? "NULL");
+                
                 if (string.IsNullOrEmpty(filePath) || !_fileService.FileExists(filePath))
                 {
+                    _logger.LogInformation("No template configured or file doesn't exist");
                     var noTemplateInfo = new TemplateInfo
                     {
                         HasTemplate = false,
@@ -524,14 +558,28 @@ namespace WebApplicationScheveCMS.Controllers
 
                 var fileInfo = _fileService.GetFileInfo(filePath);
                 
+                if (fileInfo == null)
+                {
+                    _logger.LogWarning("File exists check passed but GetFileInfo returned null for: {FilePath}", filePath);
+                    var noTemplateInfo = new TemplateInfo
+                    {
+                        HasTemplate = false,
+                        Message = "Template file information unavailable"
+                    };
+                    return Ok(ApiResponse<TemplateInfo>.SuccessResult(noTemplateInfo));
+                }
+                
                 var templateInfo = new TemplateInfo
                 {
                     HasTemplate = true,
-                    FileName = fileInfo?.Name,
-                    FileSize = fileInfo?.Length ?? 0,
-                    LastModified = fileInfo?.LastWriteTime,
-                    Extension = fileInfo?.Extension
+                    FileName = fileInfo.Name,
+                    FileSize = fileInfo.Length,
+                    LastModified = fileInfo.LastWriteTime,
+                    Extension = fileInfo.Extension
                 };
+                
+                _logger.LogInformation("Template info retrieved successfully: {FileName}, {FileSize} bytes", 
+                    templateInfo.FileName, templateInfo.FileSize);
                 
                 return Ok(ApiResponse<TemplateInfo>.SuccessResult(templateInfo));
             }
@@ -619,17 +667,24 @@ namespace WebApplicationScheveCMS.Controllers
         {
             try
             {
+                _logger.LogInformation("Attempting to cleanup old template");
+                
                 var systemSettings = await _systemSettingsService.GetSettingsAsync();
                 var oldFilePath = systemSettings?.DefaultInvoiceTemplatePath;
                 
                 if (!string.IsNullOrEmpty(oldFilePath) && _fileService.FileExists(oldFilePath))
                 {
                     _fileService.DeleteFile(oldFilePath);
+                    _logger.LogInformation("Deleted old template file: {OldFilePath}", oldFilePath);
+                }
+                else
+                {
+                    _logger.LogInformation("No old template file to cleanup");
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Could not cleanup old template file");
+                _logger.LogWarning(ex, "Could not cleanup old template file - continuing with upload");
             }
         }
 

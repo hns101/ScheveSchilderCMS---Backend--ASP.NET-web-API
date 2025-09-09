@@ -2,18 +2,10 @@ using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 using WebApplicationScheveCMS.Models;
 using Microsoft.Extensions.Logging;
-using MongoDB.Bson;
 
 namespace WebApplicationScheveCMS.Services
 {
-    public interface ISystemSettingsService
-    {
-        Task<SystemSettings?> GetSettingsAsync();
-        Task UpdateTemplatePathAsync(string templatePath);
-        Task<SystemSettings> CreateOrUpdateSettingsAsync(SystemSettings settings);
-    }
-
-    public class SystemSettingsService : ISystemSettingsService
+    public class SystemSettingsService
     {
         private readonly IMongoCollection<SystemSettings> _settingsCollection;
         private readonly ILogger<SystemSettingsService> _logger;
@@ -29,31 +21,13 @@ namespace WebApplicationScheveCMS.Services
             _settingsCollection = mongoDatabase.GetCollection<SystemSettings>(
                 studentDatabaseSettings.Value.SystemSettingsCollectionName);
             _logger = logger;
-            
-            // Create index on Id field for better performance
-            CreateIndexes();
-        }
-
-        private void CreateIndexes()
-        {
-            try
-            {
-                var indexKeys = Builders<SystemSettings>.IndexKeys.Ascending(x => x.Id);
-                var indexOptions = new CreateIndexOptions { Unique = true };
-                _settingsCollection.Indexes.CreateOne(new CreateIndexModel<SystemSettings>(indexKeys, indexOptions));
-                _logger.LogInformation("Created unique index on SystemSettings.Id");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Index may already exist or failed to create for SystemSettings");
-            }
         }
 
         public async Task<SystemSettings?> GetSettingsAsync()
         {
             try
             {
-                _logger.LogInformation("Attempting to retrieve system settings with ID: {SettingsId}", SETTINGS_ID);
+                _logger.LogInformation("Retrieving system settings");
                 
                 var settings = await _settingsCollection
                     .Find(x => x.Id == SETTINGS_ID)
@@ -63,7 +37,6 @@ namespace WebApplicationScheveCMS.Services
                 {
                     _logger.LogInformation("No existing settings found, creating default settings");
                     
-                    // Create default settings if none exist
                     settings = new SystemSettings
                     {
                         Id = SETTINGS_ID,
@@ -73,12 +46,7 @@ namespace WebApplicationScheveCMS.Services
                     };
                     
                     await _settingsCollection.InsertOneAsync(settings);
-                    _logger.LogInformation("Created default system settings with ID: {SettingsId}", SETTINGS_ID);
-                }
-                else
-                {
-                    _logger.LogInformation("Retrieved existing system settings: {TemplatePath}", 
-                        settings.DefaultInvoiceTemplatePath ?? "NULL");
+                    _logger.LogInformation("Created default system settings");
                 }
 
                 return settings;
@@ -102,66 +70,23 @@ namespace WebApplicationScheveCMS.Services
                     .Set(x => x.LastUpdated, DateTime.UtcNow)
                     .Set(x => x.UpdatedBy, "System");
 
-                var options = new UpdateOptions { IsUpsert = true };
-                var result = await _settingsCollection.UpdateOneAsync(filter, update, options);
+                var result = await _settingsCollection.UpdateOneAsync(
+                    filter, 
+                    update, 
+                    new UpdateOptions { IsUpsert = true });
 
                 if (result.IsAcknowledged)
                 {
-                    if (result.UpsertedId != null)
-                    {
-                        _logger.LogInformation("Created new settings document with template path: {TemplatePath}", templatePath);
-                    }
-                    else
-                    {
-                        _logger.LogInformation("Updated existing settings with template path: {TemplatePath}", templatePath);
-                    }
+                    _logger.LogInformation("Template path updated successfully");
                 }
                 else
                 {
-                    _logger.LogWarning("Update operation was not acknowledged by MongoDB");
-                    throw new InvalidOperationException("Failed to update template path - operation not acknowledged");
+                    throw new InvalidOperationException("Failed to update template path");
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating template path to: {TemplatePath}", templatePath);
-                throw;
-            }
-        }
-
-        public async Task<SystemSettings> CreateOrUpdateSettingsAsync(SystemSettings settings)
-        {
-            try
-            {
-                if (settings == null)
-                {
-                    throw new ArgumentNullException(nameof(settings));
-                }
-
-                settings.Id = SETTINGS_ID;
-                settings.LastUpdated = DateTime.UtcNow;
-                settings.UpdatedBy = settings.UpdatedBy ?? "System";
-
-                _logger.LogInformation("Creating or updating system settings");
-
-                var filter = Builders<SystemSettings>.Filter.Eq(x => x.Id, SETTINGS_ID);
-                var options = new ReplaceOptions { IsUpsert = true };
-                var result = await _settingsCollection.ReplaceOneAsync(filter, settings, options);
-
-                if (result.IsAcknowledged)
-                {
-                    _logger.LogInformation("System settings updated successfully");
-                    return settings;
-                }
-                else
-                {
-                    _logger.LogWarning("Replace operation was not acknowledged by MongoDB");
-                    throw new InvalidOperationException("Failed to update settings - operation not acknowledged");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error updating system settings");
+                _logger.LogError(ex, "Error updating template path");
                 throw;
             }
         }
