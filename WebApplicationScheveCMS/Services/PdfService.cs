@@ -12,23 +12,32 @@ namespace WebApplicationScheveCMS.Services
     public interface IPdfService
     {
         byte[] GenerateInvoicePdf(Student student, Invoice invoice, string templateImagePath);
+        Task<byte[]> GenerateInvoicePdfWithLayoutAsync(Student student, Invoice invoice, string templateImagePath, PdfLayoutSettings? layoutSettings = null);
     }
 
     public class PdfService : IPdfService
     {
         private readonly IWebHostEnvironment _env;
         private readonly ILogger<PdfService> _logger;
+        private readonly IPdfLayoutService _layoutService;
 
-        public PdfService(IWebHostEnvironment env, ILogger<PdfService> logger)
+        public PdfService(IWebHostEnvironment env, ILogger<PdfService> logger, IPdfLayoutService layoutService)
         {
             _env = env;
             _logger = logger;
+            _layoutService = layoutService;
             
             // Ensure QuestPDF license is set
             QuestPDF.Settings.License = LicenseType.Community;
         }
 
         public byte[] GenerateInvoicePdf(Student student, Invoice invoice, string templateImagePath)
+        {
+            // Use the async version with default layout
+            return GenerateInvoicePdfWithLayoutAsync(student, invoice, templateImagePath).Result;
+        }
+
+        public async Task<byte[]> GenerateInvoicePdfWithLayoutAsync(Student student, Invoice invoice, string templateImagePath, PdfLayoutSettings? layoutSettings = null)
         {
             try
             {
@@ -54,6 +63,12 @@ namespace WebApplicationScheveCMS.Services
                 if (!File.Exists(templateImagePath))
                 {
                     throw new FileNotFoundException($"Template image not found at path: {templateImagePath}");
+                }
+
+                // Get layout settings if not provided
+                if (layoutSettings == null)
+                {
+                    layoutSettings = await _layoutService.GetLayoutSettingsAsync();
                 }
 
                 _logger.LogDebug("Template image found at: {TemplatePath}", templateImagePath);
@@ -88,48 +103,38 @@ namespace WebApplicationScheveCMS.Services
                                 try
                                 {
                                     // Student Name
-                                    column.Item().PaddingTop(150).PaddingLeft(400).MaxHeight(15)
-                                        .AlignLeft().Text(student.Name ?? "").FontSize(10);
+                                    AddTextElement(column, layoutSettings.StudentName, student.Name ?? "");
 
                                     // Student Address  
-                                    column.Item().PaddingTop(165).PaddingLeft(400).MaxHeight(15)
-                                        .AlignLeft().Text(student.Address ?? "").FontSize(10);
+                                    AddTextElement(column, layoutSettings.StudentAddress, student.Address ?? "");
 
                                     // Invoice ID
-                                    column.Item().PaddingTop(195).PaddingLeft(400).MaxHeight(15)
-                                        .AlignLeft().Text(invoice.Id?.ToString() ?? "").FontSize(10);
+                                    AddTextElement(column, layoutSettings.InvoiceId, invoice.Id?.ToString() ?? "");
 
                                     // Invoice Date
-                                    column.Item().PaddingTop(210).PaddingLeft(400).MaxHeight(15)
-                                        .AlignLeft().Text(invoice.Date.ToString("dd-MM-yyyy")).FontSize(10);
+                                    AddTextElement(column, layoutSettings.InvoiceDate, invoice.Date.ToString("dd-MM-yyyy"));
 
                                     // Invoice Description
-                                    column.Item().PaddingTop(315).PaddingLeft(100).MaxHeight(15)
-                                        .AlignLeft().Text(invoice.Description ?? "").FontSize(10);
+                                    AddTextElement(column, layoutSettings.InvoiceDescription, invoice.Description ?? "");
 
                                     // Calculate amounts
                                     var baseAmount = invoice.AmountTotal / (1 + invoice.VAT / 100);
                                     var vatAmount = invoice.AmountTotal - baseAmount;
 
                                     // Base Amount (Subtotal)
-                                    column.Item().PaddingTop(400).PaddingLeft(500).MaxHeight(15)
-                                        .AlignLeft().Text($"€{baseAmount:N2}").FontSize(10).SemiBold();
+                                    AddTextElement(column, layoutSettings.BaseAmount, $"€{baseAmount:N2}");
 
                                     // VAT Amount
-                                    column.Item().PaddingTop(415).PaddingLeft(500).MaxHeight(15)
-                                        .AlignLeft().Text($"€{vatAmount:N2}").FontSize(10).SemiBold();
+                                    AddTextElement(column, layoutSettings.VatAmount, $"€{vatAmount:N2}");
 
                                     // Total Amount
-                                    column.Item().PaddingTop(430).PaddingLeft(500).MaxHeight(15)
-                                        .AlignLeft().Text($"€{invoice.AmountTotal:N2}").FontSize(10).SemiBold();
+                                    AddTextElement(column, layoutSettings.TotalAmount, $"€{invoice.AmountTotal:N2}");
 
                                     // Payment Note
-                                    column.Item().PaddingTop(500).PaddingLeft(100).MaxHeight(15)
-                                        .AlignLeft().Text("Dit bedrag wordt automatisch geïncasseerd omstreeks 11-10-2024.").FontSize(10);
+                                    AddTextElement(column, layoutSettings.PaymentNote, "Dit bedrag wordt automatisch geïncasseerd omstreeks 11-10-2024.");
 
                                     // Contact Info
-                                    column.Item().PaddingTop(600).PaddingLeft(100).MaxHeight(15)
-                                        .AlignLeft().Text($"Contact: {student.Email}").FontSize(10);
+                                    AddTextElement(column, layoutSettings.ContactInfo, $"Contact: {student.Email}");
 
                                     _logger.LogDebug("All text elements added successfully");
                                 }
@@ -153,6 +158,28 @@ namespace WebApplicationScheveCMS.Services
                 _logger.LogError(ex, "Error generating PDF for student {StudentId}. Template: {TemplatePath}", 
                     student?.Id, templateImagePath);
                 throw new InvalidOperationException($"Failed to generate PDF for student {student?.Name}: {ex.Message}", ex);
+            }
+        }
+
+        private static void AddTextElement(ColumnDescriptor column, PdfElementPosition position, string text)
+        {
+            var item = column.Item()
+                .PaddingTop(position.Top)
+                .PaddingLeft(position.Left)
+                .MaxHeight(position.MaxHeight);
+
+            var textElement = position.TextAlign.ToLower() switch
+            {
+                "center" => item.AlignCenter(),
+                "right" => item.AlignRight(),
+                _ => item.AlignLeft()
+            };
+
+            var textDescriptor = textElement.Text(text).FontSize(position.FontSize);
+
+            if (position.IsBold)
+            {
+                textDescriptor.SemiBold();
             }
         }
     }

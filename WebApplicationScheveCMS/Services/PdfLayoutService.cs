@@ -2,6 +2,7 @@ using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 using WebApplicationScheveCMS.Models;
 using Microsoft.Extensions.Logging;
+using System.Reflection;
 
 namespace WebApplicationScheveCMS.Services
 {
@@ -17,7 +18,7 @@ namespace WebApplicationScheveCMS.Services
     {
         private readonly IMongoCollection<PdfLayoutSettings> _layoutCollection;
         private readonly ILogger<PdfLayoutService> _logger;
-        private const string LAYOUT_SETTINGS_ID = "default_pdf_layout";
+        private const string LAYOUT_ID = "default_layout";
 
         public PdfLayoutService(
             IOptions<StudentDatabaseSettings> studentDatabaseSettings,
@@ -34,14 +35,16 @@ namespace WebApplicationScheveCMS.Services
         {
             try
             {
+                _logger.LogInformation("Retrieving PDF layout settings");
+
                 var settings = await _layoutCollection
-                    .Find(x => x.Id == LAYOUT_SETTINGS_ID)
+                    .Find(x => x.Id == LAYOUT_ID)
                     .FirstOrDefaultAsync();
 
                 if (settings == null)
                 {
-                    // Create default settings if none exist
-                    settings = CreateDefaultLayoutSettings();
+                    _logger.LogInformation("No existing layout settings found, creating default settings");
+                    settings = CreateDefaultSettings();
                     await _layoutCollection.InsertOneAsync(settings);
                     _logger.LogInformation("Created default PDF layout settings");
                 }
@@ -51,7 +54,7 @@ namespace WebApplicationScheveCMS.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error retrieving PDF layout settings");
-                return CreateDefaultLayoutSettings();
+                throw;
             }
         }
 
@@ -59,16 +62,27 @@ namespace WebApplicationScheveCMS.Services
         {
             try
             {
-                settings.Id = LAYOUT_SETTINGS_ID;
-                settings.LastUpdated = DateTime.Now;
+                _logger.LogInformation("Updating PDF layout settings");
+                
+                settings.Id = LAYOUT_ID;
+                settings.LastUpdated = DateTime.UtcNow;
+                settings.UpdatedBy = "User";
 
-                await _layoutCollection.ReplaceOneAsync(
-                    x => x.Id == LAYOUT_SETTINGS_ID,
-                    settings,
+                var filter = Builders<PdfLayoutSettings>.Filter.Eq(x => x.Id, LAYOUT_ID);
+                var result = await _layoutCollection.ReplaceOneAsync(
+                    filter, 
+                    settings, 
                     new ReplaceOptions { IsUpsert = true });
 
-                _logger.LogInformation("PDF layout settings updated successfully");
-                return settings;
+                if (result.IsAcknowledged)
+                {
+                    _logger.LogInformation("PDF layout settings updated successfully");
+                    return settings;
+                }
+                else
+                {
+                    throw new InvalidOperationException("Failed to update PDF layout settings");
+                }
             }
             catch (Exception ex)
             {
@@ -81,23 +95,24 @@ namespace WebApplicationScheveCMS.Services
         {
             try
             {
+                _logger.LogInformation("Updating element position: {ElementName}", elementName);
+
                 var settings = await GetLayoutSettingsAsync();
                 
-                // Update the specific element position using reflection
-                var property = typeof(PdfLayoutSettings).GetProperty(elementName);
-                if (property != null && property.PropertyType == typeof(PdfElementPosition))
+                // Use reflection to update the specific element
+                var property = typeof(PdfLayoutSettings).GetProperty(elementName, BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
+                if (property == null)
                 {
-                    property.SetValue(settings, position);
-                    return await UpdateLayoutSettingsAsync(settings);
+                    throw new ArgumentException($"Element '{elementName}' not found in layout settings");
                 }
-                else
-                {
-                    throw new ArgumentException($"Invalid element name: {elementName}");
-                }
+
+                property.SetValue(settings, position);
+                
+                return await UpdateLayoutSettingsAsync(settings);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating element position for: {ElementName}", elementName);
+                _logger.LogError(ex, "Error updating element position: {ElementName}", elementName);
                 throw;
             }
         }
@@ -106,32 +121,34 @@ namespace WebApplicationScheveCMS.Services
         {
             try
             {
-                var defaultSettings = CreateDefaultLayoutSettings();
+                _logger.LogInformation("Resetting PDF layout settings to default");
+
+                var defaultSettings = CreateDefaultSettings();
                 return await UpdateLayoutSettingsAsync(defaultSettings);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error resetting PDF layout to default");
+                _logger.LogError(ex, "Error resetting PDF layout settings to default");
                 throw;
             }
         }
 
-        private static PdfLayoutSettings CreateDefaultLayoutSettings()
+        private static PdfLayoutSettings CreateDefaultSettings()
         {
             return new PdfLayoutSettings
             {
-                Id = LAYOUT_SETTINGS_ID,
-                StudentName = new PdfElementPosition { Top = 150, Left = 400, FontSize = 10 },
-                StudentAddress = new PdfElementPosition { Top = 165, Left = 400, FontSize = 10 },
-                InvoiceId = new PdfElementPosition { Top = 195, Left = 400, FontSize = 10 },
-                InvoiceDate = new PdfElementPosition { Top = 210, Left = 400, FontSize = 10 },
-                InvoiceDescription = new PdfElementPosition { Top = 315, Left = 100, FontSize = 10 },
-                BaseAmount = new PdfElementPosition { Top = 400, Left = 500, FontSize = 10, IsBold = true },
-                VatAmount = new PdfElementPosition { Top = 415, Left = 500, FontSize = 10, IsBold = true },
-                TotalAmount = new PdfElementPosition { Top = 430, Left = 500, FontSize = 10, IsBold = true },
-                PaymentNote = new PdfElementPosition { Top = 500, Left = 100, FontSize = 10 },
-                ContactInfo = new PdfElementPosition { Top = 600, Left = 100, FontSize = 10 },
-                LastUpdated = DateTime.Now,
+                Id = LAYOUT_ID,
+                StudentName = new PdfElementPosition { Top = 150, Left = 400, FontSize = 10, TextAlign = "left", IsBold = false, MaxHeight = 15 },
+                StudentAddress = new PdfElementPosition { Top = 165, Left = 400, FontSize = 10, TextAlign = "left", IsBold = false, MaxHeight = 15 },
+                InvoiceId = new PdfElementPosition { Top = 195, Left = 400, FontSize = 10, TextAlign = "left", IsBold = false, MaxHeight = 15 },
+                InvoiceDate = new PdfElementPosition { Top = 210, Left = 400, FontSize = 10, TextAlign = "left", IsBold = false, MaxHeight = 15 },
+                InvoiceDescription = new PdfElementPosition { Top = 315, Left = 100, FontSize = 10, TextAlign = "left", IsBold = false, MaxHeight = 15 },
+                BaseAmount = new PdfElementPosition { Top = 400, Left = 500, FontSize = 10, TextAlign = "left", IsBold = true, MaxHeight = 15 },
+                VatAmount = new PdfElementPosition { Top = 415, Left = 500, FontSize = 10, TextAlign = "left", IsBold = true, MaxHeight = 15 },
+                TotalAmount = new PdfElementPosition { Top = 430, Left = 500, FontSize = 10, TextAlign = "left", IsBold = true, MaxHeight = 15 },
+                PaymentNote = new PdfElementPosition { Top = 500, Left = 100, FontSize = 10, TextAlign = "left", IsBold = false, MaxHeight = 15 },
+                ContactInfo = new PdfElementPosition { Top = 600, Left = 100, FontSize = 10, TextAlign = "left", IsBold = false, MaxHeight = 15 },
+                LastUpdated = DateTime.UtcNow,
                 UpdatedBy = "System"
             };
         }
