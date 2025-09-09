@@ -50,6 +50,15 @@ BsonClassMap.RegisterClassMap<SystemSettings>(cm =>
     cm.MapIdProperty(c => c.Id)
       .SetSerializer(new StringSerializer(BsonType.String));
 });
+
+// FIXED: Add PdfLayoutSettings BSON mapping
+BsonClassMap.RegisterClassMap<PdfLayoutSettings>(cm =>
+{
+    cm.AutoMap();
+    cm.MapIdProperty(c => c.Id)
+      .SetIdGenerator(StringObjectIdGenerator.Instance)
+      .SetSerializer(new StringSerializer(BsonType.ObjectId));
+});
 // --- End BSON Class Map Registration ---
 
 // Add CORS services
@@ -97,10 +106,11 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
 builder.Services.Configure<StudentDatabaseSettings>(
     builder.Configuration.GetSection("StudentDatabaseSettings"));
 
-// Register your services here
+// Register your services here - FIXED: Added missing services
 builder.Services.AddSingleton<StudentService>();
 builder.Services.AddSingleton<InvoiceService>();
 builder.Services.AddSingleton<SystemSettingsService>();
+builder.Services.AddSingleton<IPdfLayoutService, PdfLayoutService>(); // ADDED: Missing service
 builder.Services.AddSingleton<IFileService, FileService>();
 builder.Services.AddSingleton<IPdfService, PdfService>();
 

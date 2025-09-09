@@ -19,13 +19,13 @@ namespace WebApplicationScheveCMS.Services
     {
         private readonly IWebHostEnvironment _env;
         private readonly ILogger<PdfService> _logger;
-        private readonly IPdfLayoutService _layoutService;
+        private readonly IServiceProvider _serviceProvider; // FIXED: Use service provider to resolve dependencies
 
-        public PdfService(IWebHostEnvironment env, ILogger<PdfService> logger, IPdfLayoutService layoutService)
+        public PdfService(IWebHostEnvironment env, ILogger<PdfService> logger, IServiceProvider serviceProvider)
         {
             _env = env;
             _logger = logger;
-            _layoutService = layoutService;
+            _serviceProvider = serviceProvider; // FIXED: Store service provider for later use
             
             // Ensure QuestPDF license is set
             QuestPDF.Settings.License = LicenseType.Community;
@@ -65,10 +65,20 @@ namespace WebApplicationScheveCMS.Services
                     throw new FileNotFoundException($"Template image not found at path: {templateImagePath}");
                 }
 
-                // Get layout settings if not provided
+                // Get layout settings if not provided - FIXED: Resolve service when needed
                 if (layoutSettings == null)
                 {
-                    layoutSettings = await _layoutService.GetLayoutSettingsAsync();
+                    var layoutService = _serviceProvider.GetService<IPdfLayoutService>();
+                    if (layoutService != null)
+                    {
+                        layoutSettings = await layoutService.GetLayoutSettingsAsync();
+                    }
+                    else
+                    {
+                        // Fallback to default settings if service is not available
+                        layoutSettings = CreateDefaultLayoutSettings();
+                        _logger.LogWarning("PdfLayoutService not available, using default layout settings");
+                    }
                 }
 
                 _logger.LogDebug("Template image found at: {TemplatePath}", templateImagePath);
@@ -181,6 +191,26 @@ namespace WebApplicationScheveCMS.Services
             {
                 textDescriptor.SemiBold();
             }
+        }
+
+        // FIXED: Add fallback default layout settings
+        private static PdfLayoutSettings CreateDefaultLayoutSettings()
+        {
+            return new PdfLayoutSettings
+            {
+                StudentName = new PdfElementPosition { Top = 150, Left = 400, FontSize = 10, TextAlign = "Left", IsBold = false, MaxHeight = 15 },
+                StudentAddress = new PdfElementPosition { Top = 165, Left = 400, FontSize = 10, TextAlign = "Left", IsBold = false, MaxHeight = 15 },
+                InvoiceId = new PdfElementPosition { Top = 195, Left = 400, FontSize = 10, TextAlign = "Left", IsBold = false, MaxHeight = 15 },
+                InvoiceDate = new PdfElementPosition { Top = 210, Left = 400, FontSize = 10, TextAlign = "Left", IsBold = false, MaxHeight = 15 },
+                InvoiceDescription = new PdfElementPosition { Top = 315, Left = 100, FontSize = 10, TextAlign = "Left", IsBold = false, MaxHeight = 15 },
+                BaseAmount = new PdfElementPosition { Top = 400, Left = 500, FontSize = 10, TextAlign = "Left", IsBold = true, MaxHeight = 15 },
+                VatAmount = new PdfElementPosition { Top = 415, Left = 500, FontSize = 10, TextAlign = "Left", IsBold = true, MaxHeight = 15 },
+                TotalAmount = new PdfElementPosition { Top = 430, Left = 500, FontSize = 10, TextAlign = "Left", IsBold = true, MaxHeight = 15 },
+                PaymentNote = new PdfElementPosition { Top = 500, Left = 100, FontSize = 10, TextAlign = "Left", IsBold = false, MaxHeight = 15 },
+                ContactInfo = new PdfElementPosition { Top = 600, Left = 100, FontSize = 10, TextAlign = "Left", IsBold = false, MaxHeight = 15 },
+                LastUpdated = DateTime.UtcNow,
+                UpdatedBy = "System"
+            };
         }
     }
 }
