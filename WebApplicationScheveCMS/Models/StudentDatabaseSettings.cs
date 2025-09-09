@@ -1,3 +1,6 @@
+using MongoDB.Bson;
+using MongoDB.Bson.Serialization.Attributes;
+
 namespace WebApplicationScheveCMS.Models
 {
     public class StudentDatabaseSettings
@@ -12,11 +15,20 @@ namespace WebApplicationScheveCMS.Models
         public long MaxFileUploadSize { get; set; } = 5 * 1024 * 1024; // 5MB
     }
 
+    [BsonIgnoreExtraElements]
     public class SystemSettings
     {
+        [BsonId]
+        [BsonElement("_id")]
         public string? Id { get; set; }
+
+        [BsonElement("DefaultInvoiceTemplatePath")]
         public string? DefaultInvoiceTemplatePath { get; set; }
-        public DateTime LastUpdated { get; set; } = DateTime.Now;
+
+        [BsonElement("LastUpdated")]
+        public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
+
+        [BsonElement("UpdatedBy")]
         public string UpdatedBy { get; set; } = "System";
     }
 
