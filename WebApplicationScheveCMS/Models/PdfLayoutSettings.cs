@@ -46,7 +46,7 @@ namespace WebApplicationScheveCMS.Models
         public PdfElementPosition ContactInfo { get; set; } = new() { Top = 600, Left = 100, FontSize = 10 };
         
         [BsonElement("LastUpdated")]
-        public DateTime LastUpdated { get; set; } = DateTime.Now;
+        public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
         
         [BsonElement("UpdatedBy")]
         public string UpdatedBy { get; set; } = "System";

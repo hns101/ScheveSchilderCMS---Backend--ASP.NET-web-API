@@ -180,7 +180,7 @@ namespace WebApplicationScheveCMS.Controllers
             }
         }
 
-        // POST: api/invoices/batch-generate
+        // POST: api/invoices/batch-generate - FIXED VERSION
         [HttpPost("batch-generate")]
         public async Task<ActionResult<ApiResponse<BatchGenerationResult>>> BatchGenerate([FromBody] BatchInvoiceRequest request)
         {
@@ -188,7 +188,7 @@ namespace WebApplicationScheveCMS.Controllers
             {
                 _logger.LogInformation("Starting batch generation request with {StudentCount} students", request?.StudentIds?.Count ?? 0);
 
-                // Enhanced validation with detailed logging
+                // Enhanced validation
                 var validationResult = ValidateBatchRequest(request);
                 if (!validationResult.IsValid)
                 {
@@ -196,20 +196,10 @@ namespace WebApplicationScheveCMS.Controllers
                     return BadRequest(ApiResponse<BatchGenerationResult>.ErrorResult(validationResult.ErrorMessage, validationResult.Errors));
                 }
 
-                // Check system settings with enhanced error handling
-                SystemSettings? systemSettings = null;
-                try
-                {
-                    systemSettings = await _systemSettingsService.GetSettingsAsync();
-                    _logger.LogInformation("Retrieved system settings: {HasSettings}", systemSettings != null);
-                }
-                catch (Exception settingsEx)
-                {
-                    _logger.LogError(settingsEx, "Failed to retrieve system settings");
-                    return StatusCode(500, ApiResponse<BatchGenerationResult>.ErrorResult("Failed to retrieve system settings"));
-                }
-
+                // Check system settings
+                var systemSettings = await _systemSettingsService.GetSettingsAsync();
                 var defaultTemplatePath = systemSettings?.DefaultInvoiceTemplatePath;
+                
                 _logger.LogInformation("Template path from settings: {TemplatePath}", defaultTemplatePath ?? "NULL");
 
                 if (string.IsNullOrEmpty(defaultTemplatePath))
@@ -221,24 +211,11 @@ namespace WebApplicationScheveCMS.Controllers
                 if (!_fileService.FileExists(defaultTemplatePath))
                 {
                     _logger.LogWarning("Template file does not exist at path: {TemplatePath}", defaultTemplatePath);
-                    return BadRequest(ApiResponse<BatchGenerationResult>.ErrorResult($"Default invoice template file not found at path: {defaultTemplatePath}"));
+                    return BadRequest(ApiResponse<BatchGenerationResult>.ErrorResult($"Default invoice template file not found. Please re-upload template in Settings."));
                 }
 
                 // Ensure directories exist
-                try
-                {
-                    var invoicesDir = Path.Combine(_env.ContentRootPath, "Files", "Invoices");
-                    if (!Directory.Exists(invoicesDir))
-                    {
-                        Directory.CreateDirectory(invoicesDir);
-                        _logger.LogInformation("Created invoices directory: {InvoicesDir}", invoicesDir);
-                    }
-                }
-                catch (Exception dirEx)
-                {
-                    _logger.LogError(dirEx, "Failed to create invoices directory");
-                    return StatusCode(500, ApiResponse<BatchGenerationResult>.ErrorResult("Failed to create necessary directories"));
-                }
+                EnsureDirectoriesExist();
 
                 var results = new BatchGenerationResult
                 {
@@ -262,20 +239,8 @@ namespace WebApplicationScheveCMS.Controllers
                             continue;
                         }
 
-                        // Get student with enhanced error handling
-                        Student? student = null;
-                        try
-                        {
-                            student = await _studentService.GetAsync(studentId);
-                        }
-                        catch (Exception studentEx)
-                        {
-                            var errorMsg = $"Database error retrieving student '{studentId}': {studentEx.Message}";
-                            _logger.LogError(studentEx, "Error retrieving student: {StudentId}", studentId);
-                            results.Errors.Add(errorMsg);
-                            continue;
-                        }
-
+                        // Get student
+                        var student = await _studentService.GetAsync(studentId);
                         if (student is null)
                         {
                             var errorMsg = $"Student with ID '{studentId}' not found";
@@ -296,12 +261,12 @@ namespace WebApplicationScheveCMS.Controllers
                             Description = request.Description ?? "Invoice"
                         };
 
-                        // Generate PDF with enhanced error handling
+                        // Generate PDF
                         byte[] pdfBytes;
                         try
                         {
                             _logger.LogDebug("Generating PDF for student: {StudentId}", studentId);
-                            pdfBytes = _pdfService.GenerateInvoicePdf(student, newInvoice, defaultTemplatePath);
+                            pdfBytes = await _pdfService.GenerateInvoicePdfWithLayoutAsync(student, newInvoice, defaultTemplatePath);
                             _logger.LogDebug("PDF generated successfully, size: {PdfSize} bytes", pdfBytes.Length);
                         }
                         catch (Exception pdfEx)
@@ -312,12 +277,11 @@ namespace WebApplicationScheveCMS.Controllers
                             continue;
                         }
 
-                        // Save PDF file with enhanced error handling and FIXED filename generation
+                        // Save PDF file with proper filename
                         try
                         {
-                            // FIXED: Proper GUID formatting
                             var guidString = Guid.NewGuid().ToString("N")[..8];
-                            var fileName = $"Invoice_{student.StudentNumber}_{DateTime.Now:yyyyMMdd}_{guidString}.pdf";
+                            var fileName = $"Invoice_{SanitizeForFilename(student.StudentNumber)}_{DateTime.Now:yyyyMMdd}_{guidString}.pdf";
                             
                             _logger.LogDebug("Saving PDF file: {FileName}", fileName);
                             newInvoice.InvoicePdfPath = _fileService.SavePdf(fileName, pdfBytes);
@@ -331,7 +295,7 @@ namespace WebApplicationScheveCMS.Controllers
                             continue;
                         }
 
-                        // Save invoice to database with enhanced error handling
+                        // Save invoice to database
                         try
                         {
                             _logger.LogDebug("Saving invoice to database for student: {StudentId}", studentId);
@@ -520,7 +484,7 @@ namespace WebApplicationScheveCMS.Controllers
                 var dummyStudent = CreateDummyStudent();
                 var dummyInvoice = CreateDummyInvoice();
 
-                var pdfBytes = _pdfService.GenerateInvoicePdf(dummyStudent, dummyInvoice, defaultTemplatePath);
+                var pdfBytes = await _pdfService.GenerateInvoicePdfWithLayoutAsync(dummyStudent, dummyInvoice, defaultTemplatePath);
                 var fileName = $"template_preview_{DateTime.Now:yyyyMMdd_HHmmss}.pdf";
                 
                 return File(pdfBytes, "application/pdf", fileName);
@@ -592,6 +556,24 @@ namespace WebApplicationScheveCMS.Controllers
 
         #region Private Helper Methods
 
+        private void EnsureDirectoriesExist()
+        {
+            try
+            {
+                var invoicesDir = Path.Combine(_env.ContentRootPath, "Files", "Invoices");
+                if (!Directory.Exists(invoicesDir))
+                {
+                    Directory.CreateDirectory(invoicesDir);
+                    _logger.LogInformation("Created invoices directory: {InvoicesDir}", invoicesDir);
+                }
+            }
+            catch (Exception dirEx)
+            {
+                _logger.LogError(dirEx, "Failed to create invoices directory");
+                throw new InvalidOperationException("Failed to create necessary directories");
+            }
+        }
+
         private static async Task<byte[]> ReadAllBytesAsync(IFormFile file)
         {
             using var memoryStream = new MemoryStream();
@@ -619,7 +601,6 @@ namespace WebApplicationScheveCMS.Controllers
                 errors.Add($"Invalid file type. Allowed types: {string.Join(", ", _allowedImageExtensions)}");
             }
 
-            // Additional file content validation could be added here
             if (!IsValidImageContent(file))
             {
                 errors.Add("File content is not a valid image");
@@ -699,7 +680,6 @@ namespace WebApplicationScheveCMS.Controllers
         {
             try
             {
-                // Basic image validation - you could enhance this with ImageSharp or similar
                 var validHeaders = new Dictionary<string, byte[]>
                 {
                     { ".jpg", new byte[] { 0xFF, 0xD8, 0xFF } },
@@ -710,12 +690,12 @@ namespace WebApplicationScheveCMS.Controllers
                 };
 
                 var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
-                if (!validHeaders.ContainsKey(extension)) return true; // Allow other types for now
+                if (!validHeaders.ContainsKey(extension)) return true;
 
                 using var stream = file.OpenReadStream();
                 var header = new byte[8];
                 stream.Read(header, 0, header.Length);
-                stream.Position = 0; // Reset for potential future reads
+                stream.Position = 0;
 
                 var expectedHeader = validHeaders[extension];
                 return header.Take(expectedHeader.Length).SequenceEqual(expectedHeader);
@@ -726,16 +706,32 @@ namespace WebApplicationScheveCMS.Controllers
             }
         }
 
+        private static string SanitizeForFilename(string input)
+        {
+            if (string.IsNullOrEmpty(input)) return "unknown";
+            
+            var invalidChars = Path.GetInvalidFileNameChars();
+            foreach (var invalidChar in invalidChars)
+            {
+                input = input.Replace(invalidChar, '_');
+            }
+            return input;
+        }
+
         private static Student CreateDummyStudent()
         {
             return new Student
             {
+                Id = "507f1f77bcf86cd799439011",
                 Name = "Voorbeeld Student",
                 Address = "Voorbeeldstraat 123, 1234 AB Voorbeeldstad",
                 Email = "voorbeeld@student.nl",
                 StudentNumber = "STU001",
                 BankName = "Voorbeeld Bank",
-                AccountNumber = "NL12VOOR0123456789"
+                AccountNumber = "NL12VOOR0123456789",
+                PhoneNumber = "+31 6 12345678",
+                EmergencyContact = "Ouders: +31 6 87654321",
+                DateOfRegistration = DateTime.Now.AddMonths(-6)
             };
         }
 
@@ -743,6 +739,7 @@ namespace WebApplicationScheveCMS.Controllers
         {
             return new Invoice
             {
+                Id = "507f1f77bcf86cd799439012",
                 Date = DateTime.Now,
                 AmountTotal = 125.50M,
                 VAT = 21.00M,
