@@ -1,254 +1,153 @@
-using QuestPDF.Fluent;
-using QuestPDF.Helpers;
-using QuestPDF.Infrastructure;
+using Microsoft.Extensions.Options;
+using MongoDB.Driver;
 using WebApplicationScheveCMS.Models;
-using System.IO;
-using Microsoft.AspNetCore.Hosting;
-using QuestPDF;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.DependencyInjection;
+using System.Reflection;
 
 namespace WebApplicationScheveCMS.Services
 {
-    public interface IPdfService
+    public interface IPdfLayoutService
     {
-        byte[] GenerateInvoicePdf(Student student, Invoice invoice, string templateImagePath);
-        Task<byte[]> GenerateInvoicePdfWithLayoutAsync(Student student, Invoice invoice, string templateImagePath, PdfLayoutSettings? layoutSettings = null);
+        Task<PdfLayoutSettings> GetLayoutSettingsAsync();
+        Task<PdfLayoutSettings> UpdateLayoutSettingsAsync(PdfLayoutSettings settings);
+        Task<PdfLayoutSettings> UpdateElementPositionAsync(string elementName, PdfElementPosition position);
+        Task<PdfLayoutSettings> ResetToDefaultAsync();
     }
 
-    public class PdfService : IPdfService
+    public class PdfLayoutService : IPdfLayoutService
     {
-        private readonly IWebHostEnvironment _env;
-        private readonly ILogger<PdfService> _logger;
-        private readonly IServiceProvider _serviceProvider;
+        private readonly IMongoCollection<PdfLayoutSettings> _layoutCollection;
+        private readonly ILogger<PdfLayoutService> _logger;
+        private const string LAYOUT_ID = "default_layout";
 
-        public PdfService(IWebHostEnvironment env, ILogger<PdfService> logger, IServiceProvider serviceProvider)
+        public PdfLayoutService(
+            IOptions<StudentDatabaseSettings> studentDatabaseSettings,
+            ILogger<PdfLayoutService> logger)
         {
-            _env = env;
-            _logger = logger;
-            _serviceProvider = serviceProvider;
+            var mongoClient = new MongoClient(studentDatabaseSettings.Value.ConnectionString);
+            var mongoDatabase = mongoClient.GetDatabase(studentDatabaseSettings.Value.DatabaseName);
             
-            // Ensure QuestPDF license is set
-            QuestPDF.Settings.License = LicenseType.Community;
+            _layoutCollection = mongoDatabase.GetCollection<PdfLayoutSettings>("PdfLayoutSettings");
+            _logger = logger;
         }
 
-        public byte[] GenerateInvoicePdf(Student student, Invoice invoice, string templateImagePath)
-        {
-            return GenerateInvoicePdfWithLayoutAsync(student, invoice, templateImagePath).Result;
-        }
-
-        public async Task<byte[]> GenerateInvoicePdfWithLayoutAsync(Student student, Invoice invoice, string templateImagePath, PdfLayoutSettings? layoutSettings = null)
+        public async Task<PdfLayoutSettings> GetLayoutSettingsAsync()
         {
             try
             {
-                _logger.LogInformation("Starting PDF generation for student: {StudentName} ({StudentId})", 
-                    student.Name, student.Id);
+                _logger.LogInformation("Retrieving PDF layout settings");
 
-                // Validate inputs
-                ValidateInputs(student, invoice, templateImagePath);
+                var settings = await _layoutCollection
+                    .Find(x => x.Id == LAYOUT_ID)
+                    .FirstOrDefaultAsync();
 
-                // Get layout settings if not provided
-                layoutSettings ??= await GetLayoutSettingsAsync();
-
-                _logger.LogDebug("Template image found at: {TemplatePath}", templateImagePath);
-
-                // Ensure QuestPDF license is set (defensive programming)
-                QuestPDF.Settings.License = LicenseType.Community;
-
-                var pdfBytes = Document.Create(container =>
+                if (settings == null)
                 {
-                    container.Page(page =>
-                    {
-                        page.Size(PageSizes.A4);
-                        page.Margin(0);
+                    _logger.LogInformation("No existing layout settings found, creating default settings");
+                    settings = CreateDefaultSettings();
+                    await _layoutCollection.InsertOneAsync(settings);
+                    _logger.LogInformation("Created default PDF layout settings");
+                }
 
-                        page.Content().Layers(layers =>
-                        {
-                            // Background layer - the template image
-                            try
-                            {
-                                if (File.Exists(templateImagePath))
-                                {
-                                    layers.Layer().Image(templateImagePath);
-                                    _logger.LogDebug("Template image loaded successfully");
-                                }
-                                else
-                                {
-                                    _logger.LogWarning("Template image not found at: {TemplatePath}", templateImagePath);
-                                }
-                            }
-                            catch (Exception imageEx)
-                            {
-                                _logger.LogWarning(imageEx, "Failed to load template image, continuing without background");
-                            }
-
-                            // Text overlay layer (PRIMARY LAYER - REQUIRED)
-                            layers.PrimaryLayer().Column(column =>
-                            {
-                                try
-                                {
-                                    AddAllTextElements(column, student, invoice, layoutSettings);
-                                    _logger.LogDebug("All text elements added successfully");
-                                }
-                                catch (Exception textEx)
-                                {
-                                    _logger.LogError(textEx, "Error adding text elements to PDF");
-                                    throw;
-                                }
-                            });
-                        });
-                    });
-                }).GeneratePdf();
-
-                _logger.LogInformation("PDF generated successfully for student: {StudentName}, size: {PdfSize} bytes", 
-                    student.Name, pdfBytes.Length);
-
-                return pdfBytes;
+                return settings;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error generating PDF for student {StudentId}. Template: {TemplatePath}", 
-                    student?.Id, templateImagePath);
-                throw new InvalidOperationException($"Failed to generate PDF for student {student?.Name}: {ex.Message}", ex);
+                _logger.LogError(ex, "Error retrieving PDF layout settings");
+                throw;
             }
         }
 
-        private void ValidateInputs(Student student, Invoice invoice, string templateImagePath)
-        {
-            if (student == null)
-                throw new ArgumentNullException(nameof(student), "Student cannot be null");
-
-            if (invoice == null)
-                throw new ArgumentNullException(nameof(invoice), "Invoice cannot be null");
-
-            if (string.IsNullOrEmpty(templateImagePath))
-                throw new ArgumentException("Template image path cannot be null or empty", nameof(templateImagePath));
-
-            if (!File.Exists(templateImagePath))
-                throw new FileNotFoundException($"Template image not found at path: {templateImagePath}");
-        }
-
-        private async Task<PdfLayoutSettings> GetLayoutSettingsAsync()
+        public async Task<PdfLayoutSettings> UpdateLayoutSettingsAsync(PdfLayoutSettings settings)
         {
             try
             {
-                using var scope = _serviceProvider.CreateScope();
-                var layoutService = scope.ServiceProvider.GetService<IPdfLayoutService>();
+                _logger.LogInformation("Updating PDF layout settings");
                 
-                if (layoutService != null)
+                settings.Id = LAYOUT_ID;
+                settings.LastUpdated = DateTime.UtcNow;
+                settings.UpdatedBy = "User";
+
+                var filter = Builders<PdfLayoutSettings>.Filter.Eq(x => x.Id, LAYOUT_ID);
+                var result = await _layoutCollection.ReplaceOneAsync(
+                    filter, 
+                    settings, 
+                    new ReplaceOptions { IsUpsert = true });
+
+                if (result.IsAcknowledged)
                 {
-                    return await layoutService.GetLayoutSettingsAsync();
+                    _logger.LogInformation("PDF layout settings updated successfully");
+                    return settings;
                 }
                 else
                 {
-                    _logger.LogWarning("PdfLayoutService not available, using default layout settings");
-                    return CreateDefaultLayoutSettings();
+                    throw new InvalidOperationException("Failed to update PDF layout settings");
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Error getting layout settings, using defaults");
-                return CreateDefaultLayoutSettings();
+                _logger.LogError(ex, "Error updating PDF layout settings");
+                throw;
             }
         }
 
-        private void AddAllTextElements(ColumnDescriptor column, Student student, Invoice invoice, PdfLayoutSettings layoutSettings)
+        public async Task<PdfLayoutSettings> UpdateElementPositionAsync(string elementName, PdfElementPosition position)
         {
-            // Student Information
-            AddTextElement(column, layoutSettings.StudentName, student.Name ?? "");
-            AddTextElement(column, layoutSettings.StudentAddress, student.Address ?? "");
-
-            // Invoice Information  
-            AddTextElement(column, layoutSettings.InvoiceId, FormatInvoiceId(invoice.Id));
-            AddTextElement(column, layoutSettings.InvoiceDate, invoice.Date.ToString("dd-MM-yyyy"));
-            AddTextElement(column, layoutSettings.InvoiceDescription, invoice.Description ?? "");
-
-            // Financial Information
-            var (baseAmount, vatAmount) = CalculateAmounts(invoice.AmountTotal, invoice.VAT);
-            AddTextElement(column, layoutSettings.BaseAmount, FormatCurrency(baseAmount));
-            AddTextElement(column, layoutSettings.VatAmount, FormatCurrency(vatAmount));
-            AddTextElement(column, layoutSettings.TotalAmount, FormatCurrency(invoice.AmountTotal));
-
-            // Additional Information
-            AddTextElement(column, layoutSettings.PaymentNote, GetPaymentNote());
-            AddTextElement(column, layoutSettings.ContactInfo, FormatContactInfo(student));
-        }
-
-        private static void AddTextElement(ColumnDescriptor column, PdfElementPosition position, string text)
-        {
-            if (string.IsNullOrEmpty(text)) return;
-
             try
             {
-                var item = column.Item()
-                    .PaddingTop(position.Top)
-                    .PaddingLeft(position.Left)
-                    .MaxHeight(position.MaxHeight);
+                _logger.LogInformation("Updating element position: {ElementName}", elementName);
 
-                var textElement = position.TextAlign.ToLowerInvariant() switch
+                var settings = await GetLayoutSettingsAsync();
+                
+                // Use reflection to update the specific element
+                var property = typeof(PdfLayoutSettings).GetProperty(elementName, BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
+                if (property == null)
                 {
-                    "center" => item.AlignCenter(),
-                    "right" => item.AlignRight(),
-                    _ => item.AlignLeft()
-                };
-
-                var textDescriptor = textElement.Text(text).FontSize(position.FontSize);
-
-                if (position.IsBold)
-                {
-                    textDescriptor.SemiBold();
+                    throw new ArgumentException($"Element '{elementName}' not found in layout settings");
                 }
+
+                property.SetValue(settings, position);
+                
+                return await UpdateLayoutSettingsAsync(settings);
             }
             catch (Exception ex)
             {
-                // Log but don't fail the entire PDF generation for one element
-                System.Diagnostics.Debug.WriteLine($"Error adding text element: {ex.Message}");
+                _logger.LogError(ex, "Error updating element position: {ElementName}", elementName);
+                throw;
             }
         }
 
-        // Helper methods
-        private static string FormatInvoiceId(string? invoiceId)
+        public async Task<PdfLayoutSettings> ResetToDefaultAsync()
         {
-            if (string.IsNullOrEmpty(invoiceId)) return "N/A";
-            return invoiceId.Length > 8 ? invoiceId[..8] + "..." : invoiceId;
+            try
+            {
+                _logger.LogInformation("Resetting PDF layout settings to default");
+
+                var defaultSettings = CreateDefaultSettings();
+                return await UpdateLayoutSettingsAsync(defaultSettings);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error resetting PDF layout settings to default");
+                throw;
+            }
         }
 
-        private static (decimal baseAmount, decimal vatAmount) CalculateAmounts(decimal totalAmount, decimal vatPercentage)
-        {
-            var baseAmount = totalAmount / (1 + vatPercentage / 100);
-            var vatAmount = totalAmount - baseAmount;
-            return (baseAmount, vatAmount);
-        }
-
-        private static string FormatCurrency(decimal amount)
-        {
-            return $"€{amount:N2}";
-        }
-
-        private static string GetPaymentNote()
-        {
-            return $"Dit bedrag wordt automatisch geïncasseerd omstreeks {DateTime.Now.AddDays(30):dd-MM-yyyy}.";
-        }
-
-        private static string FormatContactInfo(Student student)
-        {
-            return $"Contact: {student.Email ?? "N/A"}";
-        }
-
-        private static PdfLayoutSettings CreateDefaultLayoutSettings()
+        private static PdfLayoutSettings CreateDefaultSettings()
         {
             return new PdfLayoutSettings
             {
-                StudentName = new PdfElementPosition { Top = 150, Left = 400, FontSize = 10, TextAlign = "Left", IsBold = false, MaxHeight = 20 },
-                StudentAddress = new PdfElementPosition { Top = 170, Left = 400, FontSize = 9, TextAlign = "Left", IsBold = false, MaxHeight = 40 },
-                InvoiceId = new PdfElementPosition { Top = 220, Left = 400, FontSize = 10, TextAlign = "Left", IsBold = false, MaxHeight = 15 },
-                InvoiceDate = new PdfElementPosition { Top = 240, Left = 400, FontSize = 10, TextAlign = "Left", IsBold = false, MaxHeight = 15 },
-                InvoiceDescription = new PdfElementPosition { Top = 340, Left = 100, FontSize = 10, TextAlign = "Left", IsBold = false, MaxHeight = 60 },
-                BaseAmount = new PdfElementPosition { Top = 450, Left = 450, FontSize = 10, TextAlign = "Right", IsBold = false, MaxHeight = 15 },
-                VatAmount = new PdfElementPosition { Top = 470, Left = 450, FontSize = 10, TextAlign = "Right", IsBold = false, MaxHeight = 15 },
-                TotalAmount = new PdfElementPosition { Top = 490, Left = 450, FontSize = 12, TextAlign = "Right", IsBold = true, MaxHeight = 15 },
-                PaymentNote = new PdfElementPosition { Top = 550, Left = 100, FontSize = 9, TextAlign = "Left", IsBold = false, MaxHeight = 30 },
-                ContactInfo = new PdfElementPosition { Top = 650, Left = 100, FontSize = 9, TextAlign = "Left", IsBold = false, MaxHeight = 15 },
+                Id = LAYOUT_ID,
+                StudentName = new PdfElementPosition { Top = 150, Left = 400, FontSize = 10, TextAlign = "Left", IsBold = false, MaxHeight = 15 },
+                StudentAddress = new PdfElementPosition { Top = 165, Left = 400, FontSize = 10, TextAlign = "Left", IsBold = false, MaxHeight = 15 },
+                InvoiceId = new PdfElementPosition { Top = 195, Left = 400, FontSize = 10, TextAlign = "Left", IsBold = false, MaxHeight = 15 },
+                InvoiceDate = new PdfElementPosition { Top = 210, Left = 400, FontSize = 10, TextAlign = "Left", IsBold = false, MaxHeight = 15 },
+                InvoiceDescription = new PdfElementPosition { Top = 315, Left = 100, FontSize = 10, TextAlign = "Left", IsBold = false, MaxHeight = 15 },
+                BaseAmount = new PdfElementPosition { Top = 400, Left = 500, FontSize = 10, TextAlign = "Left", IsBold = true, MaxHeight = 15 },
+                VatAmount = new PdfElementPosition { Top = 415, Left = 500, FontSize = 10, TextAlign = "Left", IsBold = true, MaxHeight = 15 },
+                TotalAmount = new PdfElementPosition { Top = 430, Left = 500, FontSize = 10, TextAlign = "Left", IsBold = true, MaxHeight = 15 },
+                PaymentNote = new PdfElementPosition { Top = 500, Left = 100, FontSize = 10, TextAlign = "Left", IsBold = false, MaxHeight = 15 },
+                ContactInfo = new PdfElementPosition { Top = 600, Left = 100, FontSize = 10, TextAlign = "Left", IsBold = false, MaxHeight = 15 },
                 LastUpdated = DateTime.UtcNow,
                 UpdatedBy = "System"
             };

@@ -9,9 +9,7 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
-using System.ComponentModel.DataAnnotations;
 using MongoDB.Bson;
 using ValidationResult = WebApplicationScheveCMS.Models.ValidationResult;
 
@@ -197,9 +195,18 @@ namespace WebApplicationScheveCMS.Controllers
                 }
 
                 // Check system settings
-                var systemSettings = await _systemSettingsService.GetSettingsAsync();
+                SystemSettings? systemSettings;
+                try
+                {
+                    systemSettings = await _systemSettingsService.GetSettingsAsync();
+                }
+                catch (Exception settingsEx)
+                {
+                    _logger.LogError(settingsEx, "Failed to retrieve system settings");
+                    return StatusCode(500, ApiResponse<BatchGenerationResult>.ErrorResult("Failed to retrieve system settings"));
+                }
+
                 var defaultTemplatePath = systemSettings?.DefaultInvoiceTemplatePath;
-                
                 _logger.LogInformation("Template path from settings: {TemplatePath}", defaultTemplatePath ?? "NULL");
 
                 if (string.IsNullOrEmpty(defaultTemplatePath))
@@ -211,7 +218,7 @@ namespace WebApplicationScheveCMS.Controllers
                 if (!_fileService.FileExists(defaultTemplatePath))
                 {
                     _logger.LogWarning("Template file does not exist at path: {TemplatePath}", defaultTemplatePath);
-                    return BadRequest(ApiResponse<BatchGenerationResult>.ErrorResult($"Default invoice template file not found. Please re-upload template in Settings."));
+                    return BadRequest(ApiResponse<BatchGenerationResult>.ErrorResult("Default invoice template file not found. Please re-upload template in Settings."));
                 }
 
                 // Ensure directories exist
@@ -240,7 +247,19 @@ namespace WebApplicationScheveCMS.Controllers
                         }
 
                         // Get student
-                        var student = await _studentService.GetAsync(studentId);
+                        Student? student;
+                        try
+                        {
+                            student = await _studentService.GetAsync(studentId);
+                        }
+                        catch (Exception studentEx)
+                        {
+                            var errorMsg = $"Database error retrieving student '{studentId}': {studentEx.Message}";
+                            _logger.LogError(studentEx, "Error retrieving student: {StudentId}", studentId);
+                            results.Errors.Add(errorMsg);
+                            continue;
+                        }
+
                         if (student is null)
                         {
                             var errorMsg = $"Student with ID '{studentId}' not found";

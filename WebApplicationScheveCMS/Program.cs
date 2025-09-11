@@ -26,48 +26,60 @@ QuestPDF.Settings.License = LicenseType.Community;
 // --- BSON Class Map and Convention Registration ---
 ConventionRegistry.Register("CamelCaseConvention", new ConventionPack { new CamelCaseElementNameConvention() }, t => true);
 
-BsonClassMap.RegisterClassMap<Student>(cm =>
+// Register BSON class maps only once
+if (!BsonClassMap.IsClassMapRegistered(typeof(Student)))
 {
-    cm.AutoMap();
-    cm.MapIdProperty(c => c.Id)
-      .SetIdGenerator(StringObjectIdGenerator.Instance)
-      .SetSerializer(new StringSerializer(BsonType.ObjectId));
-});
+    BsonClassMap.RegisterClassMap<Student>(cm =>
+    {
+        cm.AutoMap();
+        cm.MapIdProperty(c => c.Id)
+          .SetIdGenerator(StringObjectIdGenerator.Instance)
+          .SetSerializer(new StringSerializer(BsonType.ObjectId));
+    });
+}
 
-BsonClassMap.RegisterClassMap<Invoice>(cm =>
+if (!BsonClassMap.IsClassMapRegistered(typeof(Invoice)))
 {
-    cm.AutoMap();
-    cm.MapIdProperty(c => c.Id)
-      .SetIdGenerator(StringObjectIdGenerator.Instance)
-      .SetSerializer(new StringSerializer(BsonType.ObjectId));
-    cm.MapProperty(c => c.StudentId)
-      .SetSerializer(new StringSerializer(BsonType.ObjectId));
-});
+    BsonClassMap.RegisterClassMap<Invoice>(cm =>
+    {
+        cm.AutoMap();
+        cm.MapIdProperty(c => c.Id)
+          .SetIdGenerator(StringObjectIdGenerator.Instance)
+          .SetSerializer(new StringSerializer(BsonType.ObjectId));
+        cm.MapProperty(c => c.StudentId)
+          .SetSerializer(new StringSerializer(BsonType.ObjectId));
+    });
+}
 
-BsonClassMap.RegisterClassMap<SystemSettings>(cm =>
+if (!BsonClassMap.IsClassMapRegistered(typeof(SystemSettings)))
 {
-    cm.AutoMap();
-    cm.MapIdProperty(c => c.Id)
-      .SetSerializer(new StringSerializer(BsonType.String));
-});
+    BsonClassMap.RegisterClassMap<SystemSettings>(cm =>
+    {
+        cm.AutoMap();
+        cm.MapIdProperty(c => c.Id)
+          .SetSerializer(new StringSerializer(BsonType.String));
+    });
+}
 
-// FIXED: Add PdfLayoutSettings BSON mapping
-BsonClassMap.RegisterClassMap<PdfLayoutSettings>(cm =>
+if (!BsonClassMap.IsClassMapRegistered(typeof(PdfLayoutSettings)))
 {
-    cm.AutoMap();
-    cm.MapIdProperty(c => c.Id)
-      .SetIdGenerator(StringObjectIdGenerator.Instance)
-      .SetSerializer(new StringSerializer(BsonType.ObjectId));
-});
+    BsonClassMap.RegisterClassMap<PdfLayoutSettings>(cm =>
+    {
+        cm.AutoMap();
+        cm.MapIdProperty(c => c.Id)
+          .SetIdGenerator(StringObjectIdGenerator.Instance)
+          .SetSerializer(new StringSerializer(BsonType.ObjectId));
+    });
+}
 // --- End BSON Class Map Registration ---
 
 // Add CORS services
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend",
-        builder =>
+        policy =>
         {
-            builder.WithOrigins("http://localhost", "http://localhost:5173", "http://localhost:3000")
+            policy.WithOrigins("http://localhost", "http://localhost:5173", "http://localhost:3000")
                    .AllowAnyHeader()
                    .AllowAnyMethod()
                    .AllowCredentials();
@@ -102,22 +114,28 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
     };
 });
 
-// This line registers your database settings
+// Register database settings
 builder.Services.Configure<StudentDatabaseSettings>(
     builder.Configuration.GetSection("StudentDatabaseSettings"));
 
-// Register your services here - FIXED: Added missing services
+// Register services - FIXED: Correct service registration
 builder.Services.AddSingleton<StudentService>();
 builder.Services.AddSingleton<InvoiceService>();
 builder.Services.AddSingleton<SystemSettingsService>();
-builder.Services.AddSingleton<IPdfLayoutService, PdfLayoutService>(); // ADDED: Missing service
+builder.Services.AddSingleton<IPdfLayoutService, PdfLayoutService>(); // FIXED: Now properly implemented
 builder.Services.AddSingleton<IFileService, FileService>();
-builder.Services.AddSingleton<IPdfService, PdfService>();
+builder.Services.AddSingleton<IPdfService, PdfService>(); // FIXED: Now properly implemented
 
 // Add file upload size limit
 builder.Services.Configure<IISServerOptions>(options =>
 {
     options.MaxRequestBodySize = 10 * 1024 * 1024; // 10MB
+});
+
+// Configure Kestrel for larger request bodies
+builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(options =>
+{
+    options.Limits.MaxRequestBodySize = 10 * 1024 * 1024; // 10MB
 });
 
 // Add Swagger/OpenAPI services
@@ -126,9 +144,9 @@ builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
     {
-        Title = "Student CMS API",
+        Title = "De Scheve Schilder CMS API",
         Version = "v1",
-        Description = "API for managing students and invoices"
+        Description = "API for managing students and invoices with PDF generation"
     });
 });
 
@@ -150,19 +168,41 @@ try
     var filesDir = Path.Combine(env.ContentRootPath, "Files");
     var invoicesDir = Path.Combine(filesDir, "Invoices");
     var studentDocsDir = Path.Combine(filesDir, "StudentDocuments");
-    var templatesDir = Path.Combine(env.WebRootPath ?? env.ContentRootPath, "templates");
+    var templatesDir = Path.Combine(filesDir, "Templates");
 
     Directory.CreateDirectory(filesDir);
     Directory.CreateDirectory(invoicesDir);
     Directory.CreateDirectory(studentDocsDir);
     Directory.CreateDirectory(templatesDir);
     
-    logger.LogInformation("Created necessary directories on startup");
+    logger.LogInformation("Created necessary directories on startup: {FilesDir}, {InvoicesDir}, {StudentDocsDir}, {TemplatesDir}",
+        filesDir, invoicesDir, studentDocsDir, templatesDir);
 }
 catch (Exception ex)
 {
     var logger = app.Services.GetRequiredService<ILogger<Program>>();
     logger.LogError(ex, "Failed to create directories on startup");
+}
+
+// Test services are properly registered
+try
+{
+    using var scope = app.Services.CreateScope();
+    var services = scope.ServiceProvider;
+    
+    // Test service registrations
+    var pdfService = services.GetRequiredService<IPdfService>();
+    var layoutService = services.GetRequiredService<IPdfLayoutService>();
+    var fileService = services.GetRequiredService<IFileService>();
+    
+    var logger = app.Services.GetRequiredService<ILogger<Program>>();
+    logger.LogInformation("All services registered successfully - PDF: {PdfService}, Layout: {LayoutService}, File: {FileService}",
+        pdfService.GetType().Name, layoutService.GetType().Name, fileService.GetType().Name);
+}
+catch (Exception ex)
+{
+    var logger = app.Services.GetRequiredService<ILogger<Program>>();
+    logger.LogError(ex, "Service registration validation failed");
 }
 
 // Configure the HTTP request pipeline.
@@ -171,8 +211,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Student CMS API V1");
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "De Scheve Schilder CMS API V1");
         c.RoutePrefix = "swagger";
+        c.DocumentTitle = "De Scheve Schilder CMS API Documentation";
     });
     
     // Enable detailed error pages in development
@@ -193,8 +234,37 @@ app.UseStaticFiles();
 
 app.MapControllers();
 
-// Add a health check endpoint
-app.MapGet("/health", () => new { Status = "Healthy", Timestamp = DateTime.UtcNow });
+// Add a health check endpoint with service validation
+app.MapGet("/health", (IServiceProvider services) =>
+{
+    try
+    {
+        // Test critical services
+        var pdfService = services.GetRequiredService<IPdfService>();
+        var layoutService = services.GetRequiredService<IPdfLayoutService>();
+        var fileService = services.GetRequiredService<IFileService>();
+        
+        return Results.Ok(new 
+        { 
+            Status = "Healthy", 
+            Timestamp = DateTime.UtcNow,
+            Services = new 
+            {
+                PdfService = pdfService.GetType().Name,
+                LayoutService = layoutService.GetType().Name,
+                FileService = fileService.GetType().Name
+            }
+        });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(
+            title: "Service Health Check Failed",
+            detail: ex.Message,
+            statusCode: 500
+        );
+    }
+});
 
 // Error handling endpoint
 app.Map("/error", () => 
