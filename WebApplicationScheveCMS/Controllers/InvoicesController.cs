@@ -178,7 +178,7 @@ namespace WebApplicationScheveCMS.Controllers
             }
         }
 
-        // POST: api/invoices/batch-generate - FIXED VERSION
+        // POST: api/invoices/batch-generate
         [HttpPost("batch-generate")]
         public async Task<ActionResult<ApiResponse<BatchGenerationResult>>> BatchGenerate([FromBody] BatchInvoiceRequest request)
         {
@@ -220,9 +220,6 @@ namespace WebApplicationScheveCMS.Controllers
                     _logger.LogWarning("Template file does not exist at path: {TemplatePath}", defaultTemplatePath);
                     return BadRequest(ApiResponse<BatchGenerationResult>.ErrorResult("Default invoice template file not found. Please re-upload template in Settings."));
                 }
-
-                // Ensure directories exist
-                EnsureDirectoriesExist();
 
                 var results = new BatchGenerationResult
                 {
@@ -574,24 +571,6 @@ namespace WebApplicationScheveCMS.Controllers
         }
 
         #region Private Helper Methods
-
-        private void EnsureDirectoriesExist()
-        {
-            try
-            {
-                var invoicesDir = Path.Combine(_env.ContentRootPath, "Files", "Invoices");
-                if (!Directory.Exists(invoicesDir))
-                {
-                    Directory.CreateDirectory(invoicesDir);
-                    _logger.LogInformation("Created invoices directory: {InvoicesDir}", invoicesDir);
-                }
-            }
-            catch (Exception dirEx)
-            {
-                _logger.LogError(dirEx, "Failed to create invoices directory");
-                throw new InvalidOperationException("Failed to create necessary directories");
-            }
-        }
 
         private static async Task<byte[]> ReadAllBytesAsync(IFormFile file)
         {
