@@ -27,7 +27,8 @@ namespace WebApplicationScheveCMS.Services
             var mongoClient = new MongoClient(studentDatabaseSettings.Value.ConnectionString);
             var mongoDatabase = mongoClient.GetDatabase(studentDatabaseSettings.Value.DatabaseName);
             
-            _layoutCollection = mongoDatabase.GetCollection<PdfLayoutSettings>("PdfLayoutSettings");
+            _layoutCollection = mongoDatabase.GetCollection<PdfLayoutSettings>(
+                studentDatabaseSettings.Value.PdfLayoutSettingsCollectionName);
             _logger = logger;
         }
 
