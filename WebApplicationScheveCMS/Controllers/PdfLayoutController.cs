@@ -139,9 +139,9 @@ namespace WebApplicationScheveCMS.Controllers
 
                 var pdfBytes = await _pdfService.GenerateInvoicePdfWithLayoutAsync(
                     dummyStudent, dummyInvoice, defaultTemplatePath, layoutSettings);
-                
+
                 var fileName = $"layout_preview_{DateTime.Now:yyyyMMdd_HHmmss}.pdf";
-                
+
                 return File(pdfBytes, "application/pdf", fileName);
             }
             catch (Exception ex)
@@ -167,7 +167,7 @@ namespace WebApplicationScheveCMS.Controllers
                 var elements = new
                 {
                     StudentName = "Student Name",
-                    StudentAddress = "Student Address", 
+                    StudentAddress = "Student Address",
                     InvoiceId = "Invoice ID",
                     InvoiceDate = "Invoice Date",
                     InvoiceDescription = "Invoice Description",
