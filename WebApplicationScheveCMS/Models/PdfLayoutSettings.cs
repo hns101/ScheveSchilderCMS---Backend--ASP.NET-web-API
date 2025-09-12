@@ -8,7 +8,8 @@ namespace WebApplicationScheveCMS.Models
     public class PdfLayoutSettings
     {
         [BsonId]
-        [BsonRepresentation(BsonType.ObjectId)]
+        [BsonElement("_id")]
+        [BsonRepresentation(BsonType.String)] // Explicitly set to String representation
         public string? Id { get; set; }
 
         // Student Information Positioning
