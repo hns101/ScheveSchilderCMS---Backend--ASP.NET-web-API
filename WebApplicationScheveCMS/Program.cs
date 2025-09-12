@@ -118,13 +118,13 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
 builder.Services.Configure<StudentDatabaseSettings>(
     builder.Configuration.GetSection("StudentDatabaseSettings"));
 
-// Register services - FIXED: Correct service registration
+// Register services with proper lifetimes
 builder.Services.AddSingleton<StudentService>();
 builder.Services.AddSingleton<InvoiceService>();
 builder.Services.AddSingleton<SystemSettingsService>();
-builder.Services.AddSingleton<IPdfLayoutService, PdfLayoutService>(); // FIXED: Now properly implemented
+builder.Services.AddSingleton<IPdfLayoutService, PdfLayoutService>();
 builder.Services.AddSingleton<IFileService, FileService>();
-builder.Services.AddSingleton<IPdfService, PdfService>(); // FIXED: Now properly implemented
+builder.Services.AddSingleton<IPdfService, PdfService>();
 
 // Add file upload size limit
 builder.Services.Configure<IISServerOptions>(options =>
@@ -163,20 +163,27 @@ try
 {
     var env = app.Services.GetRequiredService<IWebHostEnvironment>();
     var logger = app.Services.GetRequiredService<ILogger<Program>>();
+    var settings = app.Configuration.GetSection("StudentDatabaseSettings").Get<StudentDatabaseSettings>();
     
-    // Create Files directory structure
-    var filesDir = Path.Combine(env.ContentRootPath, "Files");
-    var invoicesDir = Path.Combine(filesDir, "Invoices");
-    var studentDocsDir = Path.Combine(filesDir, "StudentDocuments");
-    var templatesDir = Path.Combine(filesDir, "Templates");
+    if (settings != null)
+    {
+        // Create Files directory structure based on settings
+        var basePath = Path.IsPathRooted(settings.FileStoragePath) 
+            ? settings.FileStoragePath 
+            : Path.Combine(env.ContentRootPath, settings.FileStoragePath);
+            
+        var invoicesDir = Path.Combine(basePath, "Invoices");
+        var studentDocsDir = Path.Combine(basePath, "StudentDocuments");
+        var templatesDir = Path.Combine(basePath, "Templates");
 
-    Directory.CreateDirectory(filesDir);
-    Directory.CreateDirectory(invoicesDir);
-    Directory.CreateDirectory(studentDocsDir);
-    Directory.CreateDirectory(templatesDir);
-    
-    logger.LogInformation("Created necessary directories on startup: {FilesDir}, {InvoicesDir}, {StudentDocsDir}, {TemplatesDir}",
-        filesDir, invoicesDir, studentDocsDir, templatesDir);
+        Directory.CreateDirectory(basePath);
+        Directory.CreateDirectory(invoicesDir);
+        Directory.CreateDirectory(studentDocsDir);
+        Directory.CreateDirectory(templatesDir);
+        
+        logger.LogInformation("Created necessary directories: {BasePath}, {InvoicesDir}, {StudentDocsDir}, {TemplatesDir}",
+            basePath, invoicesDir, studentDocsDir, templatesDir);
+    }
 }
 catch (Exception ex)
 {
