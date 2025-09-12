@@ -10,6 +10,7 @@ namespace WebApplicationScheveCMS.Models
         public string StudentsCollectionName { get; set; } = null!;
         public string InvoicesCollectionName { get; set; } = null!;
         public string SystemSettingsCollectionName { get; set; } = "SystemSettings";
+        public string PdfLayoutSettingsCollectionName { get; set; } = "PdfLayoutSettings";
         public string DefaultInvoiceTemplatePath { get; set; } = "";
         public string FileStoragePath { get; set; } = "Files";
         public long MaxFileUploadSize { get; set; } = 5 * 1024 * 1024; // 5MB
