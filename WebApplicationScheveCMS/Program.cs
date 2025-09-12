@@ -61,14 +61,14 @@ if (!BsonClassMap.IsClassMapRegistered(typeof(SystemSettings)))
     });
 }
 
+
 if (!BsonClassMap.IsClassMapRegistered(typeof(PdfLayoutSettings)))
 {
     BsonClassMap.RegisterClassMap<PdfLayoutSettings>(cm =>
     {
         cm.AutoMap();
         cm.MapIdProperty(c => c.Id)
-          .SetIdGenerator(StringObjectIdGenerator.Instance)
-          .SetSerializer(new StringSerializer(BsonType.ObjectId));
+          .SetSerializer(new StringSerializer(BsonType.String));
     });
 }
 // --- End BSON Class Map Registration ---
