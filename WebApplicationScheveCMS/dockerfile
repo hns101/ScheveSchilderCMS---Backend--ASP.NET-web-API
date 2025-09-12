@@ -1,34 +1,84 @@
 # Stage 1: Build the ASP.NET Core application
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build-stage
 
-# Set the working directory inside the container to the project folder
-# This means /src/WebApplicationScheveCMS will be the root for subsequent commands
+# Set the working directory
 WORKDIR /src/WebApplicationScheveCMS
 
-# Copy the .csproj file directly into the current working directory (which is /src/WebApplicationScheveCMS)
+# Copy project file first for better layer caching
 COPY ["WebApplicationScheveCMS.csproj", "./"]
 
-# Restore dependencies for the project
-# Now it correctly references the .csproj in the current directory
-RUN dotnet restore "WebApplicationScheveCMS.csproj"
+# Clear NuGet cache and restore dependencies with more aggressive settings
+RUN dotnet nuget locals all --clear
 
-# Copy the rest of the application code from the build context root (which is WebApplicationScheveCMS)
-# to the current working directory in the container (/src/WebApplicationScheveCMS)
+# Try restore with multiple fallback strategies
+RUN dotnet restore "WebApplicationScheveCMS.csproj" \
+    --verbosity detailed \
+    --no-cache \
+    --force \
+    --disable-parallel \
+    --ignore-failed-sources || \
+    dotnet restore "WebApplicationScheveCMS.csproj" \
+    --verbosity detailed \
+    --no-cache \
+    --force || \
+    dotnet restore "WebApplicationScheveCMS.csproj" \
+    --verbosity detailed
+
+# Copy the rest of the application code
 COPY . .
 
-# Build the application
-RUN dotnet build "WebApplicationScheveCMS.csproj" -c Release -o /app/build
+# Build the application (skip clean since it was causing issues)
+RUN dotnet build "WebApplicationScheveCMS.csproj" \
+    -c Release \
+    -o /app/build \
+    --verbosity detailed
 
-# Stage 2: Publish the application
-FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS publish-stage
+# Publish the application (remove --no-build to ensure fresh publish)
+RUN dotnet publish "WebApplicationScheveCMS.csproj" \
+    -c Release \
+    -o /app/publish \
+    --verbosity detailed
+
+# Stage 2: Runtime
+FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
+
+# Install curl for health checks and create non-root user
+RUN apt-get update && \
+    apt-get install -y curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    useradd -m -s /bin/bash appuser
+
+# Set working directory
 WORKDIR /app
-COPY --from=build-stage /app/build .
 
-# Expose the HTTP port your ASP.NET Core app listens on (5000)
-# Removed EXPOSE 7123 to avoid HTTPS issues in the container
+# Copy published application
+COPY --from=build-stage /app/publish .
+
+# Create necessary directories with proper permissions
+RUN mkdir -p /app/Files/Invoices && \
+    mkdir -p /app/Files/StudentDocuments && \
+    mkdir -p /app/Files/Templates && \
+    mkdir -p /var/lib/schevecms/Data && \
+    chown -R appuser:appuser /app && \
+    chown -R appuser:appuser /var/lib/schevecms && \
+    chmod -R 755 /app/Files && \
+    chmod -R 755 /var/lib/schevecms
+
+# Switch to non-root user
+USER appuser
+
+# Expose port
 EXPOSE 5000
 
-# Explicitly set ASPNETCORE_URLS to only use HTTP
+# Set environment variables
 ENV ASPNETCORE_URLS=http://+:5000
+ENV ASPNETCORE_ENVIRONMENT=Production
+ENV DOTNET_RUNNING_IN_CONTAINER=true
+ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
 
+# Add health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:5000/health || exit 1
+
+# Start the application
 ENTRYPOINT ["dotnet", "WebApplicationScheveCMS.dll"]
