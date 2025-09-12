@@ -2,6 +2,8 @@ using System.IO;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
+using WebApplicationScheveCMS.Models;
 
 namespace WebApplicationScheveCMS.Services
 {
@@ -19,11 +21,13 @@ namespace WebApplicationScheveCMS.Services
     {
         private readonly IWebHostEnvironment _env;
         private readonly ILogger<FileService> _logger;
+        private readonly StudentDatabaseSettings _settings;
 
-        public FileService(IWebHostEnvironment env, ILogger<FileService> logger)
+        public FileService(IWebHostEnvironment env, ILogger<FileService> logger, IOptions<StudentDatabaseSettings> settings)
         {
             _env = env;
             _logger = logger;
+            _settings = settings.Value;
         }
 
         public string SavePdf(string fileName, byte[] pdfBytes)
@@ -41,22 +45,14 @@ namespace WebApplicationScheveCMS.Services
                 }
 
                 var safeFileName = GetSafeFileName(fileName);
-                
-                // Use persistent storage outside of build directories
-                var folderPath = GetPersistentDataPath("Invoices");
+                var folderPath = GetStoragePath("Invoices");
 
                 _logger.LogDebug("Saving PDF to folder: {FolderPath}", folderPath);
 
                 // Ensure directory exists
-                if (!Directory.Exists(folderPath))
-                {
-                    Directory.CreateDirectory(folderPath);
-                    _logger.LogInformation("Created directory: {FolderPath}", folderPath);
-                }
+                Directory.CreateDirectory(folderPath);
 
                 var filePath = Path.Combine(folderPath, safeFileName);
-                
-                // Check if file already exists and create unique name if needed
                 var uniqueFilePath = GetUniqueFilePath(filePath);
                 
                 File.WriteAllBytes(uniqueFilePath, pdfBytes);
@@ -86,17 +82,11 @@ namespace WebApplicationScheveCMS.Services
                 }
 
                 var safeFileName = GetSafeFileName(fileName);
-                
-                // Use persistent storage for templates - this will survive rebuilds
-                var templatesDir = GetPersistentDataPath("Templates");
+                var templatesDir = GetStoragePath("Templates");
                 
                 _logger.LogDebug("Saving template to folder: {TemplatesDir}", templatesDir);
 
-                if (!Directory.Exists(templatesDir))
-                {
-                    Directory.CreateDirectory(templatesDir);
-                    _logger.LogInformation("Created templates directory: {TemplatesDir}", templatesDir);
-                }
+                Directory.CreateDirectory(templatesDir);
 
                 var filePath = Path.Combine(templatesDir, safeFileName);
                 File.WriteAllBytes(filePath, fileBytes);
@@ -126,17 +116,11 @@ namespace WebApplicationScheveCMS.Services
                 }
 
                 var safeFileName = GetSafeFileName(file.FileName);
-                
-                // Use persistent storage for student documents
-                var studentFolderPath = Path.Combine(GetPersistentDataPath("StudentDocuments"), studentId);
+                var studentFolderPath = Path.Combine(GetStoragePath("StudentDocuments"), studentId);
                 
                 _logger.LogDebug("Saving student document to folder: {StudentFolderPath}", studentFolderPath);
 
-                if (!Directory.Exists(studentFolderPath))
-                {
-                    Directory.CreateDirectory(studentFolderPath);
-                    _logger.LogInformation("Created student documents directory: {StudentFolderPath}", studentFolderPath);
-                }
+                Directory.CreateDirectory(studentFolderPath);
                 
                 var uniqueFileName = $"{Guid.NewGuid()}_{safeFileName}";
                 var filePath = Path.Combine(studentFolderPath, uniqueFileName);
@@ -210,31 +194,15 @@ namespace WebApplicationScheveCMS.Services
         }
 
         /// <summary>
-        /// Gets a persistent data path that survives application rebuilds
+        /// Gets the storage path for a given subfolder using the configured storage path
         /// </summary>
-        private string GetPersistentDataPath(string subfolder)
+        private string GetStoragePath(string subfolder)
         {
-            // Option 1: Use a folder outside the application directory (recommended)
-            var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-            var persistentPath = Path.Combine(appDataPath, "ScheveCMS", "Data", subfolder);
-            
-            // Option 2: If the above doesn't work, use a folder in the parent directory
-            if (!Directory.Exists(Path.GetDirectoryName(persistentPath)!))
-            {
-                try
-                {
-                    Directory.CreateDirectory(Path.GetDirectoryName(persistentPath)!);
-                }
-                catch
-                {
-                    // Fallback to a folder next to the application
-                    var fallbackPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "ScheveCMS_Data", subfolder);
-                    _logger.LogWarning("Using fallback persistent path: {FallbackPath}", fallbackPath);
-                    return Path.GetFullPath(fallbackPath);
-                }
-            }
-            
-            return persistentPath;
+            var basePath = Path.IsPathRooted(_settings.FileStoragePath) 
+                ? _settings.FileStoragePath 
+                : Path.Combine(_env.ContentRootPath, _settings.FileStoragePath);
+                
+            return Path.Combine(basePath, subfolder);
         }
 
         private static string GetSafeFileName(string fileName)
