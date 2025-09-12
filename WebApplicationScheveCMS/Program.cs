@@ -61,14 +61,14 @@ if (!BsonClassMap.IsClassMapRegistered(typeof(SystemSettings)))
     });
 }
 
-
+// FIXED: PdfLayoutSettings now uses String serialization instead of ObjectId
 if (!BsonClassMap.IsClassMapRegistered(typeof(PdfLayoutSettings)))
 {
     BsonClassMap.RegisterClassMap<PdfLayoutSettings>(cm =>
     {
         cm.AutoMap();
         cm.MapIdProperty(c => c.Id)
-          .SetSerializer(new StringSerializer(BsonType.String));
+          .SetSerializer(new StringSerializer(BsonType.String)); // This was the issue!
     });
 }
 // --- End BSON Class Map Registration ---
